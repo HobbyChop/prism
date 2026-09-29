@@ -29,6 +29,7 @@ extern volatile int g_syn_master;    /* 0..127 */
 extern volatile int g_syn_load;      /* worst block time over the last second, percent of budget */
 extern volatile int g_syn_load_avg;  /* mean block time over the same window, percent */
 extern volatile int g_syn_core_load[3];   /* mean busy time per core over the window, percent: audio core, helper 1, helper 2 */
+extern volatile int g_syn_cores;          /* threads the SoundFont parts render on, 1..3 */
 extern volatile int g_syn_mode;      /* 0 = SoundFont engine, 1 = MT-32 mode; owned by the audio thread */
 extern char g_syn_bank_name[64];     /* file name of the loaded bank */
 extern long g_syn_bank_bytes;        /* memory used by the bank (its file size); 0 = none */

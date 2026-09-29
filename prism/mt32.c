@@ -2,6 +2,7 @@
 #include <mt32emu/mt32emu.h>
 #include "mt32.h"
 #include "plat.h"
+#include "synth.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -361,6 +362,7 @@ void mt32_set_cores(int n)
     int have = 1 + plat_par_workers();
     mt32emu_parallel_count = s_cores > have ? have : s_cores;
     g_mt32.cores_used = mt32emu_parallel_count;
+    g_syn_cores = s_cores;
 }
 void mt32_set_reverb(int on)
 {

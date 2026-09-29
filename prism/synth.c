@@ -27,6 +27,7 @@ volatile int g_syn_master = 100;
 volatile int g_syn_load = 0;
 volatile int g_syn_load_avg = 0;
 volatile int g_syn_core_load[3] = { 0, 0, 0 };
+volatile int g_syn_cores = 3;
 volatile int g_syn_mode = 0;
 char g_syn_bank_name[64];
 long g_syn_bank_bytes = 0;
@@ -357,6 +358,20 @@ static void drain_events(void)
     }
 }
 
+/* the parts dealt across the threads: each thread claims the next part and
+ * renders its voices into that part's own buffer, so nothing is shared */
+typedef struct { float **bp; int next; } GmJob;
+static void gm_render_job(void *arg, int k)
+{
+    GmJob *j = (GmJob *)arg;
+    (void)k;
+    for (;;) {
+        int i = __sync_fetch_and_add(&j->next, 1);
+        if (i >= SYN_PARTS) break;
+        tsf_render_part(s_f, i, SYN_PARTS, j->bp[i], OUT_FRAMES);
+    }
+}
+
 /* ---- audio thread ---- */
 int syn_audio_thread(unsigned int args, void *argp)
 {
@@ -407,7 +422,12 @@ int syn_audio_thread(unsigned int args, void *argp)
             static int snap = 0;
             if (++snap >= 3) { snap = 0; mt32_snapshot(); }
         } else if (s_f) {
-            tsf_render_parts(s_f, bp, SYN_PARTS, OUT_FRAMES);
+            {
+                int have = 1 + plat_par_workers();
+                int cores = g_syn_cores > have ? have : g_syn_cores;
+                if (cores > 1 && g_syn_voices >= 6) { GmJob j; j.bp = bp; j.next = 0; plat_par_run(gm_render_job, &j, cores); }
+                else tsf_render_parts(s_f, bp, SYN_PARTS, OUT_FRAMES);
+            }
             memset(dry, 0, sizeof dry); memset(revb, 0, sizeof revb); memset(chob, 0, sizeof chob);
             for (int i = 0; i < SYN_PARTS; i++) {   /* per-part send levels */
                 const float *b = bus[i];

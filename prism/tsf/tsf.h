@@ -197,6 +197,8 @@ TSFDEF void tsf_render_float(tsf* f, float* buffer, int samples, int flag_mixing
 /* PRISM: every voice into its channel's own buffer (one per channel, all
  * cleared here), so the shell can mix sends. Stereo interleaved. */
 TSFDEF void tsf_render_parts(tsf* f, float** buffers, int nbuffers, int samples);
+// PRISM: one part's voices into its buffer, so parts can render on several threads
+TSFDEF void tsf_render_part(tsf* f, int channel, int nparts, float* buffer, int samples);
 
 // Higher level channel based functions, set up channel parameters
 //   channel: channel number
@@ -1767,6 +1769,19 @@ TSFDEF void tsf_render_parts(tsf* f, float** buffers, int nbuffers, int samples)
 			ch = v->playingChannel;
 			if (ch < 0 || ch >= nbuffers) ch = 0;
 			tsf_voice_render(f, v, buffers[ch], samples);
+		}
+}
+
+TSFDEF void tsf_render_part(tsf* f, int channel, int nparts, float* buffer, int samples)
+{
+	struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
+	TSF_MEMSET(buffer, 0, (f->outputmode == TSF_MONO ? 1 : 2) * sizeof(float) * samples);
+	for (; v != vEnd; v++)
+		if (v->playingPreset != -1)
+		{
+			int ch = v->playingChannel;
+			if (ch < 0 || ch >= nparts) ch = 0;
+			if (ch == channel) tsf_voice_render(f, v, buffer, samples);
 		}
 }
 

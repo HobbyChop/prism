@@ -114,5 +114,26 @@ m = re.search(r"(\t\tc->pitchRange = 2\.0f;)", s)
 assert m, "channel defaults"
 s = s[:m.end()] + " c->toneFc = 0.0f; c->toneQ = 0.0f; c->toneAtk = 1.0f; c->toneRel = 1.0f; /* PRISM */" + s[m.end():]
 
+# ---- 3. one part's voices into its buffer, for rendering the parts on several threads
+m = re.search(r"TSFDEF void tsf_render_parts\(tsf\* f, float\*\* buffers, int nbuffers, int samples\);\n", s)
+assert m, "render_parts declaration"
+s = s[:m.end()] + "// PRISM: one part's voices into its buffer, so parts can render on several threads\nTSFDEF void tsf_render_part(tsf* f, int channel, int nparts, float* buffer, int samples);\n" + s[m.end():]
+m = re.search(r"TSFDEF void tsf_render_float\(tsf\* f, float\* buffer, int samples, int flag_mixing\)\n\{\n", s)
+assert m, "render_float definition"
+s = s[:m.start()] + """TSFDEF void tsf_render_part(tsf* f, int channel, int nparts, float* buffer, int samples)
+{
+	struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
+	TSF_MEMSET(buffer, 0, (f->outputmode == TSF_MONO ? 1 : 2) * sizeof(float) * samples);
+	for (; v != vEnd; v++)
+		if (v->playingPreset != -1)
+		{
+			int ch = v->playingChannel;
+			if (ch < 0 || ch >= nparts) ch = 0;
+			if (ch == channel) tsf_voice_render(f, v, buffer, samples);
+		}
+}
+
+""" + s[m.start():]
+
 io.open(P, 'w', encoding='utf-8', newline='').write(s)
 print('tsf.h patched')

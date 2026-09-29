@@ -16,7 +16,8 @@ through Munt. MIDI comes in over USB from the PSP-MIDI adapter.
   and a limiter on the master.
 - MT-32 mode using the Munt emulator. Put MT32_CONTROL.ROM and MT32_PCM.ROM,
   or the CM-32L pair, in ux0:data/prism/mt32. Split dumps are merged. The
-  emulator renders its partials on all three cores; the changes are in
+  emulator renders its partials on all three cores, and so does the
+  SoundFont engine with its parts; the emulator changes are in
   munt/prism-parallel.patch and every one of them is bit exact, with a
   self check at start-up.
 - States. A state is the whole module: the bank, every part, the rack, the

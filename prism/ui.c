@@ -343,7 +343,7 @@ static void card(int x, int y, int w, int h)
 static void draw_engine_card(const UiStatus *st)
 {
     char b[32];
-    card(RIGHT_X, RAIL_Y + 256, 212, 104);
+    card(RIGHT_X, RAIL_Y + 256, 212, 160);
     gfx_text(g_fonts.s11, RIGHT_X + 12, RAIL_Y + 268, "ENGINE", C_GREY, 255, 2);
     {
         static int peak = 0, peak_hold = 0;
@@ -366,6 +366,17 @@ static void draw_engine_card(const UiStatus *st)
         int vv = st->voices > st->poly ? st->poly : st->voices;
         gfx_fill(mx, RAIL_Y + 336, mw, 6, C_PANEL2, 255);
         gfx_fill(mx, RAIL_Y + 336, st->poly > 0 ? mw * vv / st->poly : 0, 6, C_MINT, 255);
+        /* the cores: the audio core and the two helpers */
+        static const char *CN[3] = { "CPU 1", "CPU 2", "CPU 0" };
+        for (int i = 0; i < 3; i++) {
+            int y = RAIL_Y + 352 + i * 18;
+            int v = st->core_load[i] < 0 ? 0 : st->core_load[i] > 100 ? 100 : st->core_load[i];
+            gfx_text(g_fonts.mo10, mx, y, CN[i], C_GREY, 255, 0);
+            gfx_fill(mx + 44, y + 4, mw - 44 - 36, 5, C_PANEL2, 255);
+            gfx_fill(mx + 44, y + 4, (mw - 44 - 36) * v / 100, 5, v >= 85 ? C_AMBER : C_MINT, 255);
+            snprintf(b, sizeof b, "%d%%", v);
+            gfx_text_right(g_fonts.mo10, mx + mw, y, b, C_TEXT, 255, 0);
+        }
     }
 }
 
@@ -1051,7 +1062,7 @@ static void draw_mt32(const UiStatus *st)
     int ex = cx + cw + 12, ew = 300;
     card(ex, cy, ew, 142);
     gfx_text(g_fonts.s11, ex + 16, cy + 12, "EMULATION  -  AT THE NEXT REOPEN", C_GREY, 255, 2);
-    static const char *elabels[5] = { "ANALOG STAGE", "RATE CONVERTER", "GENERATOR", "PARTIALS", "CORES" };
+    static const char *elabels[5] = { "ANALOG STAGE", "RATE CONVERTER", "GENERATOR", "PARTIALS", "CORES  BOTH ENGINES" };
     static const char *SRC_NAME[4] = { "LINEAR", "FAST", "GOOD", "BEST" };
     for (int r = 0; r < 5; r++) {
         int y = cy + 34 + r * 21, row = MR_ANALOG + r;
