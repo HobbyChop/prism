@@ -1,4 +1,4 @@
-PRISM 0.24 - credits
+PRISM 0.25 - credits
 
 PRISM is written by eggstoastbacon (HobbyChop).
 

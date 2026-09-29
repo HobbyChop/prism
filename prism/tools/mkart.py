@@ -2,19 +2,25 @@
 """Draw the LiveArea artwork: icon0.png (128 x 128), bg.png (840 x 500) and
 startup.png (280 x 158), in the panel's palette with the Plex fonts.
 
-Usage: mkart.py <fonts/src dir> <sce_sys dir> [preview.png]
+Usage: mkart.py <fonts/src dir> <sce_sys dir> [preview.png] [--style crystal|spectrum]
 Needs Pillow. The images are written as 8-bit palette PNGs.
 """
-import os, sys
+import os, sys, math
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 BG, PANEL, PANEL2, LINE = (15, 17, 20), (23, 26, 31), (30, 35, 43), (38, 43, 51)
 TEXT, TEXT2, GREY = (232, 234, 238), (184, 190, 200), (139, 146, 158)
 MINT, MINT2, AMBER = (67, 200, 181), (111, 220, 204), (240, 179, 91)
 
-fonts_dir = sys.argv[1]
-out_dir = sys.argv[2]
-preview = sys.argv[3] if len(sys.argv) > 3 else None
+args = [a for a in sys.argv[1:] if not a.startswith('--')]
+style = 'crystal'
+for a in sys.argv[1:]:
+    if a.startswith('--style'):
+        style = a.split('=', 1)[1] if '=' in a else sys.argv[sys.argv.index(a) + 1]
+        if style in args: args.remove(style)
+fonts_dir = args[0]
+out_dir = args[1]
+preview = args[2] if len(args) > 2 else None
 
 def font(name, px):
     return ImageFont.truetype(os.path.join(fonts_dir, name), px)
@@ -38,39 +44,54 @@ def tracked(draw, x, y, text, f, fill, spacing):
 def tracked_width(text, f, spacing):
     return sum(f.getlength(ch) + spacing for ch in text) - spacing
 
-def glow_line(base, p0, p1, colour, width, glow):
-    """a line with a soft halo, composited onto base (RGB)"""
+def glow(base, box, colour, alpha, blur):
     layer = Image.new('RGBA', base.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    d.line([p0, p1], fill=colour + (70,), width=glow)
-    layer = layer.filter(ImageFilter.GaussianBlur(glow / 2))
-    d = ImageDraw.Draw(layer)
-    d.line([p0, p1], fill=colour + (255,), width=width)
+    ImageDraw.Draw(layer).ellipse(box, fill=colour + (alpha,))
+    layer = layer.filter(ImageFilter.GaussianBlur(blur))
     base.paste(layer, (0, 0), layer)
 
-def prism(base, cx, cy, size, s, beam_from, fan_to, fan_spread):
-    """the mark: a triangle, a beam in from the left, three lines out to the right.
-    s is the supersampling factor; coordinates are in final pixels."""
+# ---- the marks -------------------------------------------------------------------
+def mark_crystal(base, cx, cy, h, s):
+    """a six-sided shard, lit from the left: mint on the top facet, amber at the foot"""
     S = lambda v: v * s
-    h = size * 0.866
-    apex = (S(cx), S(cy - h * 0.6))
-    left = (S(cx - size / 2), S(cy + h * 0.4))
-    right = (S(cx + size / 2), S(cy + h * 0.4))
-    # the entry point on the left face and the exit point on the right face
-    t_in, t_out = 0.55, 0.5
-    pin = (apex[0] + (left[0] - apex[0]) * t_in, apex[1] + (left[1] - apex[1]) * t_in)
-    pout = (apex[0] + (right[0] - apex[0]) * t_out, apex[1] + (right[1] - apex[1]) * t_out)
-    d = ImageDraw.Draw(base)
-    d.polygon([apex, left, right], fill=PANEL2)
-    # the beam in, and the path inside
-    glow_line(base, (S(beam_from), pin[1] + S(size * 0.02)), pin, TEXT2, max(1, int(S(size * 0.035))), int(S(size * 0.12)))
-    ImageDraw.Draw(base).line([pin, pout], fill=LINE, width=max(1, int(S(size * 0.03))))
-    # the fan out: mint above, white in the middle, amber below
-    for colour, k in ((MINT, -1), (TEXT, 0), (AMBER, 1)):
-        end = (S(fan_to), pout[1] + S(fan_spread) * k)
-        glow_line(base, pout, end, colour, max(1, int(S(size * 0.035))), int(S(size * 0.14)))
-    d = ImageDraw.Draw(base)
-    d.polygon([apex, left, right], outline=MINT, width=max(1, int(S(size * 0.045))))
+    w = h * 0.44
+    T, B = (S(cx), S(cy - h)), (S(cx), S(cy + h))
+    UL, UR = (S(cx - w), S(cy - h / 3)), (S(cx + w), S(cy - h / 3))
+    LL, LR = (S(cx - w), S(cy + h / 3)), (S(cx + w), S(cy + h / 3))
+    C1, C2 = (S(cx), S(cy - h / 3)), (S(cx), S(cy + h / 3))
+    glow(base, [S(cx - w * 1.6), S(cy - h * 1.1), S(cx + w * 1.6), S(cy + h * 1.1)], MINT, 40, S(h * 0.25))
+    d = ImageDraw.Draw(base, 'RGBA')
+    d.polygon([T, UL, C1], fill=MINT + (140,))
+    d.polygon([T, C1, UR], fill=(34, 40, 48, 255))
+    d.polygon([UL, LL, C2, C1], fill=(44, 50, 60, 255))
+    d.polygon([C1, C2, LR, UR], fill=(24, 28, 34, 255))
+    d.polygon([LL, B, C2], fill=(30, 35, 43, 255))
+    d.polygon([C2, B, LR], fill=AMBER + (205,))
+    thin = max(1, int(S(h * 0.014)))
+    for p, q in ((T, B), (UL, UR), (LL, LR)):
+        d.line([p, q], fill=MINT2 + (120,), width=thin)
+    d.line([T, UR, LR, B, LL, UL, T], fill=MINT + (255,), width=max(1, int(S(h * 0.04))), joint='curve')
+    # the glint on the lit facet
+    d.line([(S(cx - w * 0.42), S(cy - h * 0.48)), (S(cx - w * 0.16), S(cy - h * 0.78))], fill=TEXT + (230,), width=max(1, int(S(h * 0.035))))
+
+def mark_spectrum(base, cx, cy, h, s):
+    """eleven bars in a diamond silhouette, mint through white to amber"""
+    S = lambda v: v * s
+    n = 11
+    bw, gap = h * 0.11, h * 0.07
+    total = n * bw + (n - 1) * gap
+    x0 = cx - total / 2
+    glow(base, [S(cx - total * 0.7), S(cy - h * 1.1), S(cx + total * 0.7), S(cy + h * 1.1)], MINT, 36, S(h * 0.25))
+    d = ImageDraw.Draw(base, 'RGBA')
+    for i in range(n):
+        env = 1.0 - abs(i - 5) / 6.0
+        bh = h * (0.28 + 0.72 * env)
+        x = x0 + i * (bw + gap)
+        colour = MINT if i < 4 else TEXT if i < 7 else AMBER
+        d.rounded_rectangle([S(x), S(cy - bh), S(x + bw), S(cy + bh)], radius=S(bw / 2), fill=colour + (255,))
+
+def mark(base, cx, cy, h, s):
+    (mark_crystal if style == 'crystal' else mark_spectrum)(base, cx, cy, h, s)
 
 def finish(im, s, path):
     im = im.resize((im.width // s, im.height // s), Image.LANCZOS)
@@ -79,13 +100,24 @@ def finish(im, s, path):
     im.save(path, optimize=True)
     return im
 
+def strip(base, s, y, x0, x1, count, height):
+    """a quiet meter strip along a hairline"""
+    d = ImageDraw.Draw(base, 'RGBA')
+    step = (x1 - x0) / count
+    for i in range(count):
+        t = i / count
+        v = 0.5 + 0.5 * math.sin(t * 19.0) * math.cos(t * 7.3 + 1.0)
+        bh = height * (0.15 + 0.85 * v * v)
+        x = x0 + i * step
+        d.rectangle([x * s, (y - bh) * s, (x + step * 0.55) * s, y * s], fill=LINE + (255,))
+
 # ---- the icon ----------------------------------------------------------------
 def make_icon(path):
     s = 4
     im = gradient(128 * s, 128 * s, PANEL, BG)
     d = ImageDraw.Draw(im)
     d.rounded_rectangle([3 * s, 3 * s, 125 * s, 125 * s], radius=22 * s, outline=LINE, width=2 * s)
-    prism(im, 56, 66, 64, s, beam_from=8, fan_to=122, fan_spread=18)
+    mark(im, 64, 64, 44 if style == 'crystal' else 38, s)
     return finish(im, s, path)
 
 # ---- the gate ------------------------------------------------------------------
@@ -94,7 +126,7 @@ def make_startup(path):
     im = gradient(280 * s, 158 * s, PANEL2, PANEL)
     d = ImageDraw.Draw(im)
     d.rectangle([0, 0, 280 * s - 1, 158 * s - 1], outline=LINE, width=2 * s)
-    prism(im, 64, 82, 62, s, beam_from=10, fan_to=118, fan_spread=15)
+    mark(im, 62, 79, 50 if style == 'crystal' else 42, s)
     f1 = font('IBMPlexSans-SemiBold.ttf', 40 * s)
     f2 = font('IBMPlexMono-Medium.ttf', 12 * s)
     tracked(d, 124 * s, 46 * s, 'PRISM', f1, TEXT, 2 * s)
@@ -107,12 +139,10 @@ def make_bg(path):
     s = 2
     im = gradient(840 * s, 500 * s, BG, (19, 23, 30))
     d = ImageDraw.Draw(im)
-    # faint hairlines echoing the panel
     for y in (44, 456):
         d.line([(0, y * s), (840 * s, y * s)], fill=LINE, width=s)
-    # the mark on the left, its fan reaching across behind the gate
-    prism(im, 170, 292, 180, s, beam_from=0, fan_to=840, fan_spread=42)
-    # the wordmark, top right, clear of the gate
+    strip(im, s, 456, 60, 780, 96, 26)
+    mark(im, 150, 250, 150 if style == 'crystal' else 120, s)
     f1 = font('IBMPlexSans-SemiBold.ttf', 84 * s)
     f2 = font('IBMPlexMono-Medium.ttf', 20 * s)
     f3 = font('IBMPlexMono-Regular.ttf', 15 * s)
@@ -120,7 +150,8 @@ def make_bg(path):
     x = 812 * s - w
     tracked(d, x, 52 * s, 'PRISM', f1, TEXT, 6 * s)
     tracked(d, x + 4 * s, 150 * s, 'SOUND MODULE', f2, MINT, 4 * s)
-    tracked(d, 812 * s - tracked_width('SOUNDFONT GM  +  MT-32  +  PSP-MIDI', f3, s), 424 * s, 'SOUNDFONT GM  +  MT-32  +  PSP-MIDI', f3, GREY, s)
+    line = 'SOUNDFONT GM  +  MT-32  +  PSP-MIDI'
+    tracked(d, 812 * s - tracked_width(line, f3, s), 424 * s, line, f3, GREY, s)
     return finish(im, s, path)
 
 icon = make_icon(os.path.join(out_dir, 'icon0.png'))
@@ -147,6 +178,6 @@ if preview:
     ImageDraw.Draw(p).rectangle([280, 171, 559, 328], outline=LINE)
     p.paste(icon.convert('RGB'), (24, 512))
     f = font('IBMPlexMono-Regular.ttf', 14)
-    ImageDraw.Draw(p).text((168, 560), 'icon0.png 128 x 128   bg.png 840 x 500   startup.png 280 x 158 (the gate, in the middle)', font=f, fill=GREY)
+    ImageDraw.Draw(p).text((168, 560), style + ': icon0 128 x 128   bg 840 x 500   startup 280 x 158 (the gate)', font=f, fill=GREY)
     p.save(preview)
-print('icon', icon.size, icon.mode, 'gate', gate.size, gate.mode, 'bg', bg.size, bg.mode)
+print(style, 'icon', icon.size, icon.mode, 'gate', gate.size, gate.mode, 'bg', bg.size, bg.mode)
