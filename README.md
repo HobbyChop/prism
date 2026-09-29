@@ -1,0 +1,83 @@
+# PRISM
+
+A sound module for the PS Vita. It plays SoundFont banks as a sixteen part
+General MIDI module and, with your own ROM images, emulates the Roland MT-32
+through Munt. MIDI comes in over USB from the PSP-MIDI adapter.
+
+## What it does
+
+- Sixteen parts, each with its own MIDI channel, patch, level, pan, cutoff,
+  resonance, attack, release, key range and transpose. Layers and splits are
+  parts sharing a channel.
+- Any SoundFont 2 bank placed in ux0:data/prism/soundfonts. GeneralUser GS
+  is built in. Banks that will not fit in memory, SF3 files and files that
+  are not SoundFonts are marked in red in the list with the reason.
+- An effects rack: reverb and chorus with a send per part, a three band EQ
+  and a limiter on the master.
+- MT-32 mode using the Munt emulator. Put MT32_CONTROL.ROM and MT32_PCM.ROM,
+  or the CM-32L pair, in ux0:data/prism/mt32. Split dumps are merged. The
+  emulator renders its partials on all three cores; the changes are in
+  munt/prism-parallel.patch and every one of them is bit exact, with a
+  self check at start-up.
+- States. A state is the whole module: the bank, every part, the rack, the
+  master, the polyphony and the MT-32 settings. Sixteen user slots, named on
+  the device. Launch asks whether to reload the last state.
+- USB recovery after sleep, a failed port takeover or a pulled cable, and a
+  manual reconnect by holding SELECT.
+- An audio ring that renders ahead of the port by a chosen number of blocks,
+  so a slow block does not reach the speaker as a gap.
+
+## Requirements
+
+- A PS Vita or PS TV with HENkaku or h-encore, unsafe homebrew enabled. The
+  MIDI driver is a kernel module and loads from the app's own folder.
+- The PSP-MIDI adapter on the USB port.
+
+## Install
+
+Install prism.vpk with VitaShell. The first launch creates ux0:data/prism
+with the soundfonts, mt32 and performances folders.
+
+## Controls
+
+| Button | Action |
+|---|---|
+| L / R, or the tab bar | change page |
+| Up / Down | move between parts or rows |
+| Left / Right | change the value under the cursor |
+| O | PLAY: into a part's settings and back. PERFORM: load |
+| Triangle | PLAY: the patch list |
+| X | audition; on the MT-32 page, act on the row |
+| Square | PLAY: mute. PERFORM: save the state |
+| Select | PERFORM: name the slot. Hold one second anywhere: reconnect USB |
+| Start | all sound off |
+
+The touch screen works everywhere: tap a row, drag a slider, tap the tabs.
+
+## Building
+
+Needs vitasdk with taihen on Linux or WSL, CMake, and Python 3 with Pillow
+if the fonts are regenerated.
+
+    ./build.sh
+
+The script builds the Munt library from munt/mt32emu into munt/build, then
+the app from prism/ into prism/build/prism.vpk. The kernel module and its
+user shim are shipped as binaries in prism/module.
+
+## Layout
+
+    prism/          the app: panel, engine, effects, MT-32 wrapper, platform
+    prism/tsf/      TinySoundFont with the local changes (tools/patch_tsf.py)
+    prism/fonts/    IBM Plex atlases and their sources; tools/mkfont.py makes them
+    prism/sf/       GeneralUser GS
+    prism/module/   the MIDI kernel module and user shim, prebuilt
+    munt/           Munt 2.8.2 library source with the changes, and the patch
+
+## Licences
+
+Munt (libmt32emu) is LGPL 2.1 and is statically linked; this repository
+carries the modified library source and the patch against the upstream
+release so it can be rebuilt and relinked. TinySoundFont is MIT. GeneralUser
+GS is distributed under its own licence in prism/sf/LICENSE.txt. The IBM
+Plex fonts are under the SIL Open Font License in prism/fonts/src/OFL.txt.

@@ -1,0 +1,4 @@
+build/
+*.vpk
+munt/build/
+__pycache__/
