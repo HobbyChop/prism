@@ -14,7 +14,7 @@ include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "PRISM")
 set(VITA_TITLEID  "PRISM0001")
-set(VITA_VERSION  "00.22")
+set(VITA_VERSION  "00.23")
 # ATTRIBUTE2=12: large memory mode for big banks
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d PARENTAL_LEVEL=1 -d ATTRIBUTE2=12")
 

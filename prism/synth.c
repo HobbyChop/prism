@@ -397,6 +397,13 @@ int syn_audio_thread(unsigned int args, void *argp)
         while (budget-- > 0 && plat_midi_read(pkt)) { if (g_syn_mode == 1) mt32_midi_packet(pkt); else midi_packet(pkt); }
         if (g_syn_mode == 1) {
             mt32_render(buf, OUT_FRAMES);
+            /* the rack's master stage applies to the emulator too: EQ and limiter */
+            for (int n = 0; n < OUT_FRAMES * 2; n++) dry[n] = buf[n] * (1.0f / 32768.0f);
+            fx_process_master(dry, OUT_FRAMES);
+            for (int n = 0; n < OUT_FRAMES * 2; n++) {
+                float v = dry[n] * 32767.0f;
+                buf[n] = (short)(v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : (int)v);
+            }
             static int snap = 0;
             if (++snap >= 3) { snap = 0; mt32_snapshot(); }
         } else if (s_f) {

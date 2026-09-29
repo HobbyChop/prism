@@ -19,5 +19,6 @@ void fx_defaults(FxParams *p);
 void fx_init(int rate);
 /* dry: the part mix, processed in place; rev and cho: the send buses (may be silent) */
 void fx_process(float *dry, const float *rev, const float *cho, int frames);
+void fx_process_master(float *dry, int frames);   /* the master stage only, EQ and limiter: the MT-32 path */
 
 #endif

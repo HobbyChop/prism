@@ -189,3 +189,24 @@ void fx_process(float *dry, const float *rev, const float *cho, int frames)
         dry[2 * i] = l; dry[2 * i + 1] = r;
     }
 }
+
+/* the master stage alone: the MT-32's output has its own reverb and no sends */
+void fx_process_master(float *dry, int frames)
+{
+    retune();
+    int eq_on = g_fx.eq_lo != 64 || g_fx.eq_mid != 64 || g_fx.eq_hi != 64;
+    for (int i = 0; i < frames; i++) {
+        float l = dry[2 * i], r = dry[2 * i + 1];
+        if (eq_on) {
+            for (int k = 0; k < 3; k++) { l = biquad_run(&s_eq[0][k], l); r = biquad_run(&s_eq[1][k], r); }
+        }
+        if (g_fx.limiter) {
+            float peak = fabsf(l) > fabsf(r) ? fabsf(l) : fabsf(r);
+            if (peak > s_lim_env) s_lim_env = peak; else s_lim_env *= LIM_RELEASE;
+            if (s_lim_env > LIM_THRESH) { float g = LIM_THRESH / s_lim_env; l *= g; r *= g; }
+        }
+        if (l > 1.0f) l = 1.0f; else if (l < -1.0f) l = -1.0f;
+        if (r > 1.0f) r = 1.0f; else if (r < -1.0f) r = -1.0f;
+        dry[2 * i] = l; dry[2 * i + 1] = r;
+    }
+}

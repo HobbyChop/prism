@@ -60,13 +60,13 @@ with the soundfonts, mt32 and performances folders.
 
 | Button | Action |
 |---|---|
+| D-pad | move: up and down along a column, left and right between columns and cards, on every page |
+| O held with the d-pad | change the value under the cursor |
 | L / R, or the tab bar | change page |
-| Up / Down | move between parts or rows |
-| Left / Right | change the value under the cursor |
-| O | PLAY: into a part's settings and back. PERFORM: load |
-| Triangle | PLAY: the patch list |
-| X | audition; on the MT-32 page, act on the row |
-| Square | PLAY: mute. PERFORM: save the state |
+| O tap | PERFORM: load the state under the cursor |
+| Triangle | PLAY: the patch list. EFFECTS: next part |
+| X | audition; SETUP: load the bank; MT-32 page: act on the row |
+| Square | PLAY and MIX: mute. PERFORM: save the state |
 | Select | PERFORM: name the slot. Hold one second anywhere: reconnect USB |
 | Start | all sound off |
 

@@ -43,7 +43,7 @@ static const char *s_sf_dir = "ux0:data/prism/soundfonts";
 static long s_sf_sizes[32];
 static int s_sf_why[32];        /* 0 loads; 1 too big; 2 SF3 compressed; 3 not a SoundFont */
 static long s_sf_budget = -1;
-static int s_setup_cur = 0;      /* SETUP: the list, then MASTER, POLY, AUDIO AHEAD */
+static int s_setup_cur = 0, s_setup_list = 0;   /* s_setup_list: the bank the cursor left for the module panel */      /* SETUP: the list, then MASTER, POLY, AUDIO AHEAD */
 static int s_page_prev = -1;
 /* patch browser: every preset of the bank, by bank then program */
 static int s_browse = 0, s_browse_cur = 0, s_bn = 0;
@@ -52,6 +52,7 @@ extern int app_load_bank(const char *path);   /* main.c: load with a boot-style 
 extern long app_bank_budget(void);            /* main.c: largest bank that can be loaded now */
 
 /* PERFORM */
+static int s_perf_col = 0;              /* 0 the zones, 1 the list */
 static int s_zone_field = 0;            /* 0 CH 1 LOW 2 HIGH 3 TRANS */
 static int s_perf_sel = 0;              /* list cursor: factory first, then user slots */
 static int s_perf_cur = 0;              /* loaded entry */
@@ -475,8 +476,8 @@ static void draw_play_mt32(const UiStatus *st)
     gfx_text(g_fonts.s12, RIGHT_X + 12, RAIL_Y + 108, g_mt32.map_stock ? "Channels 2 to 9, rhythm 10." : "Channels 1 to 8, rhythm 10.", C_TEXT2, 255, 0);
     draw_engine_card(st);
     gfx_text(g_fonts.mo10, CARD_X, SCR_H - 58, s_focus == 0
-             ? "UP DOWN PART   LEFT RIGHT PATCH   O SETTINGS   TRIANGLE LIST   X AUDITION"
-             : "UP DOWN SETTING   LEFT RIGHT VALUE   O BACK TO PARTS   TRIANGLE LIST   X AUDITION", C_GREY, 255, 0);
+             ? "UP DOWN PART   O + LEFT RIGHT PATCH   RIGHT SETTINGS   TRIANGLE LIST   X AUDITION"
+             : "UP DOWN SETTING   O + LEFT RIGHT VALUE   LEFT BACK TO PARTS   TRIANGLE LIST   X AUDITION", C_GREY, 255, 0);
 }
 
 static void draw_play(const UiStatus *st)
@@ -579,8 +580,8 @@ static void draw_play(const UiStatus *st)
     draw_engine_card(st);
     /* hint line */
     gfx_text(g_fonts.mo10, CARD_X, SCR_H - 58, s_focus == 0
-             ? "UP DOWN PART   LEFT RIGHT PATCH   O SETTINGS   TRIANGLE BROWSE   X AUDITION   SQUARE MUTE"
-             : "UP DOWN SETTING   LEFT RIGHT VALUE   O BACK TO PARTS   TRIANGLE BROWSE   X AUDITION", C_GREY, 255, 0);
+             ? "UP DOWN PART   O + LEFT RIGHT PATCH   RIGHT SETTINGS   TRIANGLE BROWSE   X AUDITION   SQUARE MUTE"
+             : "UP DOWN SETTING   O + LEFT RIGHT VALUE   LEFT BACK TO PARTS   TRIANGLE BROWSE   X AUDITION", C_GREY, 255, 0);
 }
 
 #define BR_X 292
@@ -691,7 +692,7 @@ static void draw_mix(const UiStatus *st)
     gfx_round(mx + 25, ky, 22, 9, 3, s_part == SYN_PARTS ? C_MINT2 : C_TEXT, 255);
     snprintf(b, sizeof b, "%d", g_syn_master);
     gfx_text(g_fonts.mo12, mx + 52, fy + mh2 / 2 - 6, b, C_TEXT, 255, 0);
-    gfx_text(g_fonts.mo10, MIX_X, SCR_H - 58, "LEFT RIGHT STRIP   UP DOWN LEVEL   SQUARE MUTE   TOUCH A FADER TO DRAG IT", C_GREY, 255, 0);
+    gfx_text(g_fonts.mo10, MIX_X, SCR_H - 58, "LEFT RIGHT STRIP   O + UP DOWN LEVEL   SQUARE MUTE   TOUCH A FADER TO DRAG IT", C_GREY, 255, 0);
 }
 
 /* ---- SETUP ------------------------------------------------------------------- */
@@ -756,6 +757,7 @@ static void draw_setup(const UiStatus *st)
     snprintf(b, sizeof b, "%d BLOCKS  %d MS", plat_audio_ahead(), plat_audio_ahead() * 1000 * OUT_FRAMES / OUT_RATE);
     gfx_text_right(g_fonts.mo14, mx + mw - 16, SU_LIST_Y + 109, b, sel ? C_MINT2 : C_TEXT, 255, 0);
     gfx_text(g_fonts.mo10, mx + 16, SU_LIST_Y + 134, "MORE COVERS A SLOW BLOCK   LESS IS TIGHTER FOR LIVE KEYS", C_GREY, 255, 0);
+    gfx_text(g_fonts.mo10, mx + 16, SU_LIST_Y + 150, s_setup_cur >= nb ? "LEFT BACK TO THE LIST   O + PAD CHANGES" : "RIGHT TO THIS PANEL", C_GREY, 255, 0);
 
     card(mx, SU_LIST_Y + 176, mw, 124);
     gfx_text(g_fonts.s11, mx + 16, SU_LIST_Y + 188, "STATUS", C_GREY, 255, 2);
@@ -808,7 +810,8 @@ static void draw_perform(const UiStatus *st)
         snprintf(b, sizeof b, "%02d", i + 1);
         gfx_text(g_fonts.mo11, 28, y + 4, b, C_GREY, 255, 0);
         gfx_text_fit(g_fonts.s12, 56, y + 3, 112, p->name[0] ? p->name : "-", off ? C_GREY : sel ? C_TEXT : C_TEXT2, 255);
-        int f0 = sel && s_zone_field == 0, f1 = sel && s_zone_field == 1, f2 = sel && s_zone_field == 2, f3 = sel && s_zone_field == 3;
+        int fs = sel && s_perf_col == 0;
+        int f0 = fs && s_zone_field == 0, f1 = fs && s_zone_field == 1, f2 = fs && s_zone_field == 2, f3 = fs && s_zone_field == 3;
         gfx_text(g_fonts.mo11, 178, y + 4, rx_text(p->rx, b2, sizeof b2), f0 ? C_MINT2 : off ? C_AMBER : C_TEXT, 255, 0);
         if (f0) gfx_fill(178, y + ZONE_H - 3, 30, 1, C_MINT, 255);
         /* range bar: octave ticks, middle C marked, the range lit */
@@ -879,7 +882,7 @@ static void draw_perform(const UiStatus *st)
     gfx_round(cx + 112, by, 88, 28, 6, C_PANEL2, 255);
     gfx_text_center(g_fonts.s11, cx + 156, by + 8, "SAVE", C_TEXT, 255, 2);
 
-    gfx_text(g_fonts.mo10, 28, SCR_H - 58, "UP DOWN PART  TRIANGLE FIELD  LEFT RIGHT VALUE  R STICK LIST  O LOAD  SQUARE SAVES THE STATE  SELECT NAME  X AUDITION", C_GREY, 255, 0);
+    gfx_text(g_fonts.mo10, 28, SCR_H - 58, "PAD MOVES   O + PAD CHANGES   O LOADS   SQUARE SAVES THE STATE   SELECT NAME   X AUDITION", C_GREY, 255, 0);
 }
 
 /* ---- EFFECTS ------------------------------------------------------------------ */
@@ -926,11 +929,18 @@ static void draw_fx(const UiStatus *st)
     }
     card(644, 216, 300, 110);
     gfx_text(g_fonts.s11, 660, 228, "SIGNAL PATH", C_GREY, 255, 2);
-    gfx_text(g_fonts.s12, 660, 250, "Parts, each with its own sends,", C_TEXT2, 255, 0);
-    gfx_text(g_fonts.s12, 660, 266, "into the reverb and the chorus,", C_TEXT2, 255, 0);
-    gfx_text(g_fonts.s12, 660, 282, "then the EQ and the limiter.", C_TEXT2, 255, 0);
-    gfx_text(g_fonts.s12, 660, 298, "CC 91 and 93 set the sends.", C_TEXT2, 255, 0);
-    gfx_text(g_fonts.mo10, 28, SCR_H - 58, "UP DOWN SLIDER   LEFT RIGHT VALUE   TRIANGLE NEXT PART FOR THE SENDS   X AUDITION   TOUCH DRAGS", C_GREY, 255, 0);
+    if (g_syn_mode == 1 && mt32_is_open()) {
+        gfx_text(g_fonts.s12, 660, 250, "MT-32 mode: the emulator's output", C_TEXT2, 255, 0);
+        gfx_text(g_fonts.s12, 660, 266, "through the EQ and the limiter.", C_TEXT2, 255, 0);
+        gfx_text(g_fonts.s12, 660, 282, "Its reverb is on the MT-32 page;", C_TEXT2, 255, 0);
+        gfx_text(g_fonts.s12, 660, 298, "sends and chorus do not apply.", C_TEXT2, 255, 0);
+    } else {
+        gfx_text(g_fonts.s12, 660, 250, "Parts, each with its own sends,", C_TEXT2, 255, 0);
+        gfx_text(g_fonts.s12, 660, 266, "into the reverb and the chorus,", C_TEXT2, 255, 0);
+        gfx_text(g_fonts.s12, 660, 282, "then the EQ and the limiter.", C_TEXT2, 255, 0);
+        gfx_text(g_fonts.s12, 660, 298, "CC 91 and 93 set the sends.", C_TEXT2, 255, 0);
+    }
+    gfx_text(g_fonts.mo10, 28, SCR_H - 58, "PAD MOVES   O + PAD CHANGES   TRIANGLE NEXT PART FOR THE SENDS   X AUDITION   TOUCH DRAGS", C_GREY, 255, 0);
 }
 
 /* load the entry under the cursor */
@@ -1119,7 +1129,7 @@ static void draw_mt32(const UiStatus *st)
         snprintf(b, sizeof b, "%d file%s seen", g_mt32.roms_found, g_mt32.roms_found == 1 ? "" : "s");
         gfx_text(g_fonts.mo10, sx + 16, cy + 146, b, C_GREY, 255, 0);
     }
-    gfx_text(g_fonts.mo10, 28, SCR_H - 58, "UP DOWN ROW   LEFT RIGHT CHANGE   X ACTS ON THE ROW   ROM FOLDER ROW: X REOPENS   START ALL OFF", C_GREY, 255, 0);
+    gfx_text(g_fonts.mo10, 28, SCR_H - 58, "PAD MOVES   O + PAD CHANGES   X ACTS ON THE ROW   ROM FOLDER ROW: X REOPENS   START ALL OFF", C_GREY, 255, 0);
 }
 
 static void draw_soon(const char *what)
@@ -1209,7 +1219,7 @@ void ui_boot_progress(const char *headline, int pct, const char *detail)
 }
 
 /* ---- input ------------------------------------------------------------------------ */
-static void play_input_mt32(const PlatPad *pad, unsigned int dn, unsigned int b, int step, int tdown)
+static void play_input_mt32(const PlatPad *pad, unsigned int dn, unsigned int nav, unsigned int b, int edit, int tdown)
 {
     static int touch_knob = -1;
     if (s_part > 8) s_part = 0;
@@ -1239,16 +1249,17 @@ static void play_input_mt32(const PlatPad *pad, unsigned int dn, unsigned int b,
         return;
     }
     if ((dn & SCE_CTRL_TRIANGLE) && s_part < 8) { s_browse_cur = g_mt32.prog[s_part]; s_browse = 1; return; }
-    if (dn & SCE_CTRL_CIRCLE) s_focus ^= 1;
     if (s_focus == 0) {
-        if (dn & SCE_CTRL_UP) s_part = (s_part + 8) % 9;
-        if (dn & SCE_CTRL_DOWN) s_part = (s_part + 1) % 9;
-        if (step) mt_set(s_part, MP_PATCH, g_mt32.prog[s_part] + step);
+        if (nav & SCE_CTRL_UP) s_part = (s_part + 8) % 9;
+        if (nav & SCE_CTRL_DOWN) s_part = (s_part + 1) % 9;
+        if (nav & SCE_CTRL_RIGHT) s_focus = 1;
+        if (edit) mt_set(s_part, MP_PATCH, g_mt32.prog[s_part] + edit);
     } else {
         if (s_row >= MP_COUNT) s_row = 0;
-        if (dn & SCE_CTRL_UP) s_row = (s_row + MP_COUNT - 1) % MP_COUNT;
-        if (dn & SCE_CTRL_DOWN) s_row = (s_row + 1) % MP_COUNT;
-        if (step) mt_set(s_part, s_row, mt_get(s_part, s_row) + step * (s_row >= MP_VOL ? 2 : 1));
+        if (nav & SCE_CTRL_UP) s_row = (s_row + MP_COUNT - 1) % MP_COUNT;
+        if (nav & SCE_CTRL_DOWN) s_row = (s_row + 1) % MP_COUNT;
+        if (nav & SCE_CTRL_LEFT) s_focus = 0;
+        if (edit) mt_set(s_part, s_row, mt_get(s_part, s_row) + edit * (s_row >= MP_VOL ? 2 : 1));
     }
     if (dn & SCE_CTRL_CROSS) { s_aud_note = s_part == 8 ? 36 : 60; syn_event(SEV_NOTE_ON, s_part, s_aud_note, 100); }
     if (!(b & SCE_CTRL_CROSS) && s_aud_note >= 0) { syn_event(SEV_NOTE_OFF, s_part, s_aud_note, 0); s_aud_note = -1; }
@@ -1285,7 +1296,7 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
     static unsigned int prev = 0;
     static int rep_ms = 0;
     static int touch_prev = 0, touch_knob = -1, touch_strip = -1;
-    unsigned int b = pad->buttons, dn = b & ~prev;
+    unsigned int b = pad->buttons, dn = b & ~prev, up = prev & ~b;
     prev = b;
     (void)st;
 
@@ -1304,6 +1315,20 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
     if (lr) { if (dn & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) { step = lr; rep_ms = 0; } else if (++rep_ms > 18 && (rep_ms & 1)) step = lr; }
     else rep_ms = 0;
 
+    /* the model on every page: the pad moves; the pad with O held changes the
+     * value under the cursor; O released without a change is a tap */
+    int o_held = (b & SCE_CTRL_CIRCLE) != 0;
+    static int ud_ms = 0, o_used = 0;
+    int ud = (b & SCE_CTRL_UP) ? 1 : (b & SCE_CTRL_DOWN) ? -1 : 0, ustep = 0;
+    if (ud) { if (dn & (SCE_CTRL_UP | SCE_CTRL_DOWN)) { ustep = ud; ud_ms = 0; } else if (++ud_ms > 18 && (ud_ms & 1)) ustep = ud; }
+    else ud_ms = 0;
+    int edit = o_held ? (step ? step : ustep) : 0;
+    unsigned int nav = o_held ? 0 : dn;
+    if (edit) o_used = 1;
+    int o_tap = (up & SCE_CTRL_CIRCLE) && !o_used;
+    if (!o_held) o_used = 0;
+    (void)o_tap;
+
     int tdown = pad->touch && !touch_prev;
     touch_prev = pad->touch;
     if (tdown && pad->ty >= SCR_H - 40) { int t = tab_hit(pad->tx); if (t >= 0) s_page = t; }
@@ -1312,7 +1337,7 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
 
     switch (s_page) {
     case PG_PLAY:
-        if (g_syn_mode == 1 && mt32_is_open()) { play_input_mt32(pad, dn, b, step, tdown); break; }
+        if (g_syn_mode == 1 && mt32_is_open()) { play_input_mt32(pad, dn, nav, b, edit, tdown); if (dn & SCE_CTRL_CIRCLE) o_used = 1; break; }
         if (s_browse) {   /* patch browser has the pad */
             static int br_ms = 0, br_stick = 0;
             int ud = (b & SCE_CTRL_DOWN) ? 1 : (b & SCE_CTRL_UP) ? -1 : 0;
@@ -1320,7 +1345,7 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
             else br_ms = 0;
             int sy = pad->ry < 90 ? -1 : pad->ry > 166 ? 1 : 0;
             if (sy) { if (++br_stick == 1 || br_stick > 14) { browse_move(sy); if (br_stick > 14) br_stick = 10; } } else br_stick = 0;
-            if (dn & SCE_CTRL_CIRCLE) s_browse = 0;
+            if (dn & SCE_CTRL_CIRCLE) { s_browse = 0; o_used = 1; }
             if (dn & SCE_CTRL_CROSS) { s_aud_note = s_part == 9 ? 36 : 60; syn_event(SEV_NOTE_ON, s_part, s_aud_note, 100); }
             if (!(b & SCE_CTRL_CROSS) && s_aud_note >= 0) { syn_event(SEV_NOTE_OFF, s_part, s_aud_note, 0); s_aud_note = -1; }
             if (pad->touch) {
@@ -1337,15 +1362,16 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
             break;
         }
         if (dn & SCE_CTRL_TRIANGLE) { browse_open(); break; }
-        if (dn & SCE_CTRL_CIRCLE) s_focus ^= 1;
-        if (s_focus == 0) {
-            if (dn & SCE_CTRL_UP) s_part = (s_part + SYN_PARTS - 1) % SYN_PARTS;
-            if (dn & SCE_CTRL_DOWN) s_part = (s_part + 1) % SYN_PARTS;
-            if (step) ps_set(PS_PATCH, g_parts[s_part].prog + step);
-        } else {
-            if (dn & SCE_CTRL_UP) s_row = (s_row + PS_COUNT - 1) % PS_COUNT;
-            if (dn & SCE_CTRL_DOWN) s_row = (s_row + 1) % PS_COUNT;
-            if (step) ps_set(s_row, ps_get(&g_parts[s_part], s_row) + step * ((s_row >= PS_LEVEL && s_row <= PS_CHO) ? 2 : 1));
+        if (s_focus == 0) {   /* the rail; RIGHT crosses to the settings */
+            if (nav & SCE_CTRL_UP) s_part = (s_part + SYN_PARTS - 1) % SYN_PARTS;
+            if (nav & SCE_CTRL_DOWN) s_part = (s_part + 1) % SYN_PARTS;
+            if (nav & SCE_CTRL_RIGHT) s_focus = 1;
+            if (edit) ps_set(PS_PATCH, g_parts[s_part].prog + edit);
+        } else {              /* the settings; LEFT goes back to the rail */
+            if (nav & SCE_CTRL_UP) s_row = (s_row + PS_COUNT - 1) % PS_COUNT;
+            if (nav & SCE_CTRL_DOWN) s_row = (s_row + 1) % PS_COUNT;
+            if (nav & SCE_CTRL_LEFT) s_focus = 0;
+            if (edit) ps_set(s_row, ps_get(&g_parts[s_part], s_row) + edit * ((s_row >= PS_LEVEL && s_row <= PS_CHO) ? 2 : 1));
         }
         if (dn & SCE_CTRL_SQUARE) syn_event(SEV_MUTE, s_part, !g_parts[s_part].mute, 0);
         if (dn & SCE_CTRL_CROSS) { s_aud_note = s_part == 9 ? 36 : 60; syn_event(SEV_NOTE_ON, s_part, s_aud_note, 100); }
@@ -1378,16 +1404,11 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
         } else touch_knob = -1;
         break;
     case PG_MIX:
-        if (dn & SCE_CTRL_LEFT) s_part = s_part == 0 ? SYN_PARTS : s_part - 1;
-        if (dn & SCE_CTRL_RIGHT) s_part = (s_part + 1) % (SYN_PARTS + 1);
-        {
-            int ud = (b & SCE_CTRL_UP) ? 1 : (b & SCE_CTRL_DOWN) ? -1 : 0;
-            static int ud_ms = 0; int ustep = 0;
-            if (ud) { if (dn & (SCE_CTRL_UP | SCE_CTRL_DOWN)) { ustep = ud; ud_ms = 0; } else if (++ud_ms > 18 && (ud_ms & 1)) ustep = ud; } else ud_ms = 0;
-            if (ustep) {
-                if (s_part == SYN_PARTS) { int v = g_syn_master + ustep * 2; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_MASTER, 0, v, 0); }
-                else { int v = g_parts[s_part].level + ustep * 2; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_LEVEL, s_part, v, 0); }
-            }
+        if (nav & SCE_CTRL_LEFT) s_part = s_part == 0 ? SYN_PARTS : s_part - 1;
+        if (nav & SCE_CTRL_RIGHT) s_part = (s_part + 1) % (SYN_PARTS + 1);
+        if (edit) {   /* O with the pad: the strip's level */
+            if (s_part == SYN_PARTS) { int v = g_syn_master + edit * 2; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_MASTER, 0, v, 0); }
+            else { int v = g_parts[s_part].level + edit * 2; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_LEVEL, s_part, v, 0); }
         }
         if ((dn & SCE_CTRL_SQUARE) && s_part < SYN_PARTS) syn_event(SEV_MUTE, s_part, !g_parts[s_part].mute, 0);
         if (pad->touch) {
@@ -1411,11 +1432,16 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
         break;
     case PG_SETUP: {
         int nb = s_sf_count + 1, items = setup_items();
-        if (dn & SCE_CTRL_UP) s_setup_cur = (s_setup_cur + items - 1) % items;
-        if (dn & SCE_CTRL_DOWN) s_setup_cur = (s_setup_cur + 1) % items;
-        if (step && s_setup_cur == nb) { int v = g_syn_master + step * 2; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_MASTER, 0, v, 0); }
-        if (step && s_setup_cur == nb + 1) { int v = g_syn_poly + step * 8; if (v < 8) v = 8; if (v > 127) v = 127; syn_event(SEV_POLY, 0, v, 0); }
-        if (step && s_setup_cur == nb + 2) { plat_audio_set_ahead(plat_audio_ahead() + step); cfg_set_ahead(plat_audio_ahead()); }
+        if (s_setup_list >= nb) s_setup_list = 0;
+        /* two columns: the list, and the module panel */
+        if ((nav & SCE_CTRL_RIGHT) && s_setup_cur < nb) { s_setup_list = s_setup_cur; s_setup_cur = nb; }
+        else if ((nav & SCE_CTRL_LEFT) && s_setup_cur >= nb) s_setup_cur = s_setup_list;
+        if (nav & SCE_CTRL_UP) s_setup_cur = s_setup_cur >= nb ? (s_setup_cur == nb ? items - 1 : s_setup_cur - 1) : (s_setup_cur == 0 ? nb - 1 : s_setup_cur - 1);
+        if (nav & SCE_CTRL_DOWN) s_setup_cur = s_setup_cur >= nb ? (s_setup_cur == items - 1 ? nb : s_setup_cur + 1) : (s_setup_cur == nb - 1 ? 0 : s_setup_cur + 1);
+        if (s_setup_cur < nb) s_setup_list = s_setup_cur;
+        if (edit && s_setup_cur == nb) { int v = g_syn_master + edit * 2; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_MASTER, 0, v, 0); }
+        if (edit && s_setup_cur == nb + 1) { int v = g_syn_poly + edit * 8; if (v < 8) v = 8; if (v > 127) v = 127; syn_event(SEV_POLY, 0, v, 0); }
+        if (edit && s_setup_cur == nb + 2) { plat_audio_set_ahead(plat_audio_ahead() + edit); cfg_set_ahead(plat_audio_ahead()); }
         int load_it = (dn & SCE_CTRL_CROSS) && s_setup_cur < nb;
         {
             static int touch_su = -1;
@@ -1478,19 +1504,27 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
                 if (s_perf_sel == s_perf_cur) snprintf(s_perf_name, sizeof s_perf_name, "%s", nm);
                 s_name_edit = 0; perf_msg("NAMED");
             }
-            if (dn & SCE_CTRL_CIRCLE) s_name_edit = 0;
+            if (dn & SCE_CTRL_CIRCLE) { s_name_edit = 0; o_used = 1; }
             break;
         }
-        if (dn & SCE_CTRL_UP) s_part = (s_part + SYN_PARTS - 1) % SYN_PARTS;
-        if (dn & SCE_CTRL_DOWN) s_part = (s_part + 1) % SYN_PARTS;
+        if (s_perf_col == 0) {   /* the zones: parts down, fields across, the list past the last field */
+            if (nav & SCE_CTRL_UP) s_part = (s_part + SYN_PARTS - 1) % SYN_PARTS;
+            if (nav & SCE_CTRL_DOWN) s_part = (s_part + 1) % SYN_PARTS;
+            if ((nav & SCE_CTRL_LEFT) && s_zone_field > 0) s_zone_field--;
+            if (nav & SCE_CTRL_RIGHT) { if (s_zone_field < 3) s_zone_field++; else s_perf_col = 1; }
+        } else {                 /* the list */
+            if (nav & SCE_CTRL_UP) s_perf_sel = (s_perf_sel + PERF_LIST_N - 1) % PERF_LIST_N;
+            if (nav & SCE_CTRL_DOWN) s_perf_sel = (s_perf_sel + 1) % PERF_LIST_N;
+            if (nav & SCE_CTRL_LEFT) s_perf_col = 0;
+        }
         if (dn & SCE_CTRL_TRIANGLE) s_zone_field = (s_zone_field + 1) % 4;
-        if (step) {
+        if (edit && s_perf_col == 0) {
             const SynPart *p = &g_parts[s_part];
             switch (s_zone_field) {
-            case 0: syn_event(SEV_RX, s_part, (p->rx + 18 + step) % 18, 0); break;
-            case 1: { int v = p->low + step; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_LOW, s_part, v, 0); break; }
-            case 2: { int v = p->high + step; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_HIGH, s_part, v, 0); break; }
-            default: { int v = p->trans + step; if (v < -24) v = -24; if (v > 24) v = 24; syn_event(SEV_TRANS, s_part, v + 24, 0); break; }
+            case 0: syn_event(SEV_RX, s_part, (p->rx + 18 + edit) % 18, 0); break;
+            case 1: { int v = p->low + edit; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_LOW, s_part, v, 0); break; }
+            case 2: { int v = p->high + edit; if (v < 0) v = 0; if (v > 127) v = 127; syn_event(SEV_HIGH, s_part, v, 0); break; }
+            default: { int v = p->trans + edit; if (v < -24) v = -24; if (v > 24) v = 24; syn_event(SEV_TRANS, s_part, v + 24, 0); break; }
             }
         }
         /* right stick walks the list */
@@ -1500,7 +1534,7 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
             if (dy) { if (++stick_ms == 1 || stick_ms > 20) { s_perf_sel = (s_perf_sel + PERF_LIST_N + dy) % PERF_LIST_N; if (stick_ms > 20) stick_ms = 15; } }
             else stick_ms = 0;
         }
-        if (dn & SCE_CTRL_CIRCLE) perf_load_sel();
+        if (o_tap) perf_load_sel();
         if (dn & SCE_CTRL_SQUARE) perf_save_sel();
         if (dn & SCE_CTRL_SELECT) {
             int slot = s_perf_sel - perf_factory_count();
@@ -1554,11 +1588,15 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
         break;
     }
     case PG_MT32: {
-        if (dn & SCE_CTRL_UP) s_mt_row = (s_mt_row + MR_COUNT - 1) % MR_COUNT;
-        if (dn & SCE_CTRL_DOWN) s_mt_row = (s_mt_row + 1) % MR_COUNT;
+        /* two columns of five rows: MODULE and EMULATION */
+        int mcol = s_mt_row < MR_MODULE_ROWS ? 0 : 1;
+        if (nav & SCE_CTRL_UP) s_mt_row = mcol == 0 ? (s_mt_row == 0 ? MR_MODULE_ROWS - 1 : s_mt_row - 1) : (s_mt_row == MR_ANALOG ? MR_COUNT - 1 : s_mt_row - 1);
+        if (nav & SCE_CTRL_DOWN) s_mt_row = mcol == 0 ? (s_mt_row == MR_MODULE_ROWS - 1 ? 0 : s_mt_row + 1) : (s_mt_row == MR_COUNT - 1 ? MR_ANALOG : s_mt_row + 1);
+        if ((nav & SCE_CTRL_RIGHT) && mcol == 0) s_mt_row = MR_ANALOG + (s_mt_row < MR_COUNT - MR_ANALOG ? s_mt_row : MR_COUNT - MR_ANALOG - 1);
+        if ((nav & SCE_CTRL_LEFT) && mcol == 1) s_mt_row = s_mt_row - MR_ANALOG < MR_MODULE_ROWS ? s_mt_row - MR_ANALOG : MR_MODULE_ROWS - 1;
         /* X acts on the selected row: toggles flip, values step up; only the ROM
          * FOLDER row reopens the emulator */
-        int act = step != 0 || (dn & SCE_CTRL_CROSS) != 0;
+        int act = edit != 0 || (dn & SCE_CTRL_CROSS) != 0;
         if (tdown) {   /* tap on a row selects it; tap on its value changes it */
             int cx = 16, cy = 244, cw = 300, ex = cx + cw + 12, ew = 300;
             if (pad->tx >= cx && pad->tx < cx + cw && pad->ty >= cy + 32 && pad->ty < cy + 32 + MR_MODULE_ROWS * 30) {
@@ -1570,7 +1608,7 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
             }
         }
         if (act) {
-            int d = step ? step : 1;
+            int d = edit ? edit : 1;
             switch (s_mt_row) {
             case MR_MODE: syn_event(SEV_MODE, 0, g_syn_mode == 1 ? 0 : 1, 0); break;
             case MR_REVERB: mt32_set_reverb(!g_mt32.reverb_on); break;
@@ -1584,7 +1622,7 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
             default: break;
             }
         }
-        if (act && s_mt_row == MR_RESCAN && !step) {   /* reopen with the emulation settings and return to the previous mode */
+        if (act && s_mt_row == MR_RESCAN && !edit) {   /* reopen with the emulation settings and return to the previous mode */
             int was_mt32 = g_syn_mode == 1;
             if (was_mt32) { syn_event(SEV_MODE, 0, 0, 0); plat_sleep_ms(30); }
             mt32_open("ux0:data/prism/mt32");
@@ -1593,10 +1631,18 @@ static void handle_input(const PlatPad *pad, const UiStatus *st)
         break;
     }
     case PG_FX: {
-        if (dn & SCE_CTRL_UP) s_fx_sel = (s_fx_sel + FXS_COUNT - 1) % FXS_COUNT;
-        if (dn & SCE_CTRL_DOWN) s_fx_sel = (s_fx_sel + 1) % FXS_COUNT;
+        /* three columns: reverb and chorus, EQ and output, the part sends */
+        static const int LO[3] = { FXS_REV_SIZE, FXS_EQ_LO, FXS_PART_REV }, HI[3] = { FXS_CHO_LEVEL, FXS_MASTER, FXS_PART_CHO };
+        int col = s_fx_sel < FXS_EQ_LO ? 0 : s_fx_sel < FXS_PART_REV ? 1 : 2;
+        if (nav & SCE_CTRL_UP) s_fx_sel = s_fx_sel == LO[col] ? HI[col] : s_fx_sel - 1;
+        if (nav & SCE_CTRL_DOWN) s_fx_sel = s_fx_sel == HI[col] ? LO[col] : s_fx_sel + 1;
+        if (nav & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) {
+            int r = s_fx_sel - LO[col], nc = (col + 3 + ((nav & SCE_CTRL_RIGHT) ? 1 : -1)) % 3;
+            if (r > HI[nc] - LO[nc]) r = HI[nc] - LO[nc];
+            s_fx_sel = LO[nc] + r;
+        }
         if (dn & SCE_CTRL_TRIANGLE) s_part = (s_part + 1) % SYN_PARTS;
-        if (step) fx_set(s_fx_sel, s_fx_sel == FXS_LIMITER ? (step > 0 ? 127 : 0) : fx_get(s_fx_sel) + step * 2);
+        if (edit) fx_set(s_fx_sel, s_fx_sel == FXS_LIMITER ? (edit > 0 ? 127 : 0) : fx_get(s_fx_sel) + edit * 2);
         if (dn & SCE_CTRL_CROSS) { s_aud_note = s_part == 9 ? 36 : 60; syn_event(SEV_NOTE_ON, s_part, s_aud_note, 100); }
         if (!(b & SCE_CTRL_CROSS) && s_aud_note >= 0) { syn_event(SEV_NOTE_OFF, s_part, s_aud_note, 0); s_aud_note = -1; }
         {
