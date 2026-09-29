@@ -17,6 +17,7 @@ typedef struct {
     unsigned int fail_err;
     int batt_pct, batt_charging;
     int voices, poly, load, load_avg;
+    int core_load[3];
 } UiStatus;
 
 void ui_init(void);

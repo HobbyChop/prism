@@ -14,7 +14,7 @@ include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "PRISM")
 set(VITA_TITLEID  "PRISM0001")
-set(VITA_VERSION  "00.21")
+set(VITA_VERSION  "00.22")
 # ATTRIBUTE2=12: large memory mode for big banks
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d PARENTAL_LEVEL=1 -d ATTRIBUTE2=12")
 
@@ -66,6 +66,10 @@ vita_create_vpk(${SHORT_NAME}.vpk ${VITA_TITLEID} ${SHORT_NAME}.self
   FILE ${PROJECT_SOURCE_DIR}/sf/GeneralUser-GS.sf2 sf/GeneralUser-GS.sf2
   FILE ${PROJECT_SOURCE_DIR}/sf/LICENSE.txt sf/LICENSE-GeneralUser-GS.txt
   FILE ${PROJECT_SOURCE_DIR}/fonts/src/OFL.txt fonts/OFL-IBM-Plex.txt
+  FILE ${PROJECT_SOURCE_DIR}/sce_sys/icon0.png sce_sys/icon0.png
+  FILE ${PROJECT_SOURCE_DIR}/sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
+  FILE ${PROJECT_SOURCE_DIR}/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+  FILE ${PROJECT_SOURCE_DIR}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
   FILE ${PROJECT_SOURCE_DIR}/credits/CREDITS.txt credits/CREDITS.txt
   FILE ${PROJECT_SOURCE_DIR}/credits/LGPL-2.1-Munt.txt credits/LGPL-2.1-Munt.txt
   FILE ${PROJECT_SOURCE_DIR}/credits/Munt-AUTHORS.txt credits/Munt-AUTHORS.txt

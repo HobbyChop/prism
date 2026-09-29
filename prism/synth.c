@@ -26,6 +26,7 @@ volatile int g_syn_poly = 48;
 volatile int g_syn_master = 100;
 volatile int g_syn_load = 0;
 volatile int g_syn_load_avg = 0;
+volatile int g_syn_core_load[3] = { 0, 0, 0 };
 volatile int g_syn_mode = 0;
 char g_syn_bank_name[64];
 long g_syn_bank_bytes = 0;
@@ -370,6 +371,7 @@ int syn_audio_thread(unsigned int args, void *argp)
     fx_init(OUT_RATE);
     if (plat_audio_open() < 0) return -1;
     unsigned int win_max = 0, win_n = 0, win_sum = 0;
+    unsigned long long core_us[3] = { 0, 0, 0 };
     const unsigned int blk_us = OUT_FRAMES * 1000000u / OUT_RATE;
     for (;;) {
         unsigned int t0 = plat_time_us();
@@ -425,9 +427,17 @@ int syn_audio_thread(unsigned int args, void *argp)
         unsigned int work = plat_time_us() - t0;
         if (work > win_max) win_max = work;
         win_sum += work;
+        {   /* the cores: the audio thread less its wait for the helpers, then each helper */
+            unsigned int ps[4];
+            plat_par_stats(ps);
+            core_us[0] += work > ps[3] ? work - ps[3] : 0;
+            core_us[1] += ps[1];
+            core_us[2] += ps[2];
+        }
         if (++win_n >= OUT_RATE / OUT_FRAMES) {
             g_syn_load = (int)(win_max * 100u / blk_us);
             g_syn_load_avg = (int)((unsigned long long)win_sum * 100u / ((unsigned long long)win_n * blk_us));
+            for (int c = 0; c < 3; c++) { g_syn_core_load[c] = (int)(core_us[c] * 100u / ((unsigned long long)win_n * blk_us)); core_us[c] = 0; }
             win_max = 0; win_n = 0; win_sum = 0;
         }
         plat_audio_write(buf);

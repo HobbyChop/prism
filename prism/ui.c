@@ -1070,28 +1070,51 @@ static void draw_mt32(const UiStatus *st)
     card(sx, cy, sw, 200);
     gfx_text(g_fonts.s11, sx + 16, cy + 12, "STATUS", C_GREY, 255, 2);
     if (open) {
-        gfx_text(g_fonts.s12, sx + 16, cy + 34, "Ready.", C_MINT, 255, 0);
-        gfx_text(g_fonts.s12, sx + 16, cy + 54, g_mt32.map_stock ? "Parts listen on 2 to 9," : "Parts listen on 1 to 8,", C_TEXT2, 255, 0);
-        gfx_text(g_fonts.s12, sx + 16, cy + 70, g_mt32.map_stock ? "rhythm on 10: a real MT-32." : "rhythm on 10. Games expect", C_TEXT2, 255, 0);
-        gfx_text(g_fonts.s12, sx + 16, cy + 86, g_mt32.map_stock ? "PLAY sets each part's channel." : "2 to 9: see CHANNEL MAP.", C_TEXT2, 255, 0);
-        gfx_text(g_fonts.s12, sx + 16, cy + 110, g_syn_mode == 1 ? "MT-32 mode is on." : "Set MODE to MT-32 to play.", g_syn_mode == 1 ? C_MINT : C_TEXT, 255, 0);
-        snprintf(b, sizeof b, "load mean %d%%  worst %d%%   %d of %d partials", st->load_avg, st->load, g_mt32.partials, g_mt32.partials_max);
-        gfx_text(g_fonts.mo10, sx + 16, cy + 138, b, st->load >= 85 ? C_AMBER : C_GREY, 255, 0);
-        snprintf(b, sizeof b, "at open: 1 core %d%%  2: %d%%  3: %d%%  stealing %d%%", g_mt32.bench[0], g_mt32.bench[1], g_mt32.bench[2], g_mt32.bench[3]);
-        gfx_text(g_fonts.mo10, sx + 16, cy + 156, b, C_GREY, 255, 0);
-        gfx_text(g_fonts.mo10, sx + 16, cy + 172, "WORST OVER 100% DROPS OUT: RAISE AUDIO AHEAD ON SETUP.", C_GREY, 255, 0);
-        if (g_mt32.selfcheck & 0x100) {
-            int ok = (g_mt32.selfcheck & 3) == 3;
-            if (ok) snprintf(b, sizeof b, "SELF-CHECK EXACT: EXP TABLE, CLIPPER");
-            else snprintf(b, sizeof b, "SELF-CHECK FAILED: %s%s", g_mt32.selfcheck & 1 ? "" : "EXP TABLE ", g_mt32.selfcheck & 2 ? "" : "CLIPPER");
-            gfx_text(g_fonts.mo10, sx + 16, cy + 186, b, ok ? C_MINT : C_AMBER, 255, 0);
+        gfx_text(g_fonts.s12, sx + 16, cy + 32, g_syn_mode == 1 ? "MT-32 ENGINE ACTIVE" : "MT-32 ENGINE STANDBY", g_syn_mode == 1 ? C_MINT : C_TEXT2, 255, 0);
+        /* the three cores as meters: the audio core with the worst block marked, then the helpers */
+        static const char *CL[3] = { "CPU 1  AUDIO", "CPU 2  HELPER", "CPU 0  HELPER + PANEL" };
+        int bx = sx + 16, bw = sw - 32;
+        for (int i = 0; i < 3; i++) {
+            int y = cy + 50 + i * 26;
+            int v = st->core_load[i] < 0 ? 0 : st->core_load[i] > 100 ? 100 : st->core_load[i];
+            gfx_text(g_fonts.mo10, bx, y, CL[i], C_GREY, 255, 0);
+            if (i == 0) {
+                int wv = st->load < 0 ? 0 : st->load > 100 ? 100 : st->load;
+                snprintf(b, sizeof b, "%d%%  WORST %d%%", v, st->load);
+                gfx_text_right(g_fonts.mo10, sx + sw - 16, y, b, st->load >= 100 ? C_AMBER : C_TEXT, 255, 0);
+                gfx_fill(bx, y + 13, bw, 6, C_PANEL2, 255);
+                gfx_fill(bx, y + 13, bw * v / 100, 6, v >= 85 ? C_AMBER : C_MINT, 255);
+                gfx_fill(bx + bw * wv / 100 - 1, y + 11, 2, 10, C_TEXT, 255);
+            } else {
+                snprintf(b, sizeof b, "%d%%", v);
+                gfx_text_right(g_fonts.mo10, sx + sw - 16, y, b, C_TEXT, 255, 0);
+                gfx_fill(bx, y + 13, bw, 6, C_PANEL2, 255);
+                gfx_fill(bx, y + 13, bw * v / 100, 6, v >= 85 ? C_AMBER : C_MINT, 255);
+            }
         }
+        {   /* partials against the cap */
+            int y = cy + 128, pm = g_mt32.partials_max ? g_mt32.partials_max : 32;
+            int pv = g_mt32.partials > pm ? pm : g_mt32.partials;
+            gfx_text(g_fonts.mo10, bx, y, "PARTIALS", C_GREY, 255, 0);
+            snprintf(b, sizeof b, "%d / %d", g_mt32.partials, pm);
+            gfx_text_right(g_fonts.mo10, sx + sw - 16, y, b, C_TEXT, 255, 0);
+            gfx_fill(bx, y + 13, bw, 6, C_PANEL2, 255);
+            gfx_fill(bx, y + 13, bw * pv / pm, 6, pv >= pm ? C_AMBER : C_MINT, 255);
+        }
+        snprintf(b, sizeof b, "BENCH %%  1C %d  2C %d  3C %d  STEAL %d", g_mt32.bench[0], g_mt32.bench[1], g_mt32.bench[2], g_mt32.bench[3]);
+        gfx_text_fit(g_fonts.mo10, bx, cy + 154, bw, b, C_GREY, 255);
+        {
+            int ran = (g_mt32.selfcheck & 0x100) != 0, ok = (g_mt32.selfcheck & 3) == 3;
+            snprintf(b, sizeof b, "CHANNELS %s   SELF-CHECK %s", g_mt32.map_stock ? "2-9 + 10" : "1-8 + 10", !ran ? "-" : ok ? "PASS" : "FAIL");
+            gfx_text_fit(g_fonts.mo10, bx, cy + 168, bw, b, ran && !ok ? C_AMBER : C_GREY, 255);
+        }
+        if (st->load >= 100) gfx_text_fit(g_fonts.mo10, bx, cy + 182, bw, "DROPOUTS: RAISE AUDIO AHEAD ON SETUP", C_AMBER, 255);
     } else {
-        gfx_text(g_fonts.s12, sx + 16, cy + 34, "Put your own ROM dumps in", C_TEXT2, 255, 0);
-        gfx_text(g_fonts.s12, sx + 16, cy + 50, "ux0:data/prism/mt32:", C_TEXT2, 255, 0);
-        gfx_text(g_fonts.mo10, sx + 16, cy + 70, "MT32_CONTROL.ROM + MT32_PCM.ROM", C_GREY, 255, 0);
-        gfx_text(g_fonts.mo10, sx + 16, cy + 84, "or CM32L_CONTROL.ROM + CM32L_PCM.ROM", C_GREY, 255, 0);
-        gfx_text(g_fonts.mo10, sx + 16, cy + 98, "any names; split dumps are paired", C_GREY, 255, 0);
+        gfx_text(g_fonts.s12, sx + 16, cy + 32, "NO ROMS LOADED", C_AMBER, 255, 0);
+        gfx_text_fit(g_fonts.mo10, sx + 16, cy + 56, sw - 32, "ux0:data/prism/mt32", C_TEXT2, 255);
+        gfx_text_fit(g_fonts.mo10, sx + 16, cy + 72, sw - 32, "MT32_CONTROL.ROM + MT32_PCM.ROM", C_GREY, 255);
+        gfx_text_fit(g_fonts.mo10, sx + 16, cy + 86, sw - 32, "CM32L_CONTROL.ROM + CM32L_PCM.ROM", C_GREY, 255);
+        gfx_text_fit(g_fonts.mo10, sx + 16, cy + 100, sw - 32, "SPLIT DUMPS ARE PAIRED BY CONTENT", C_GREY, 255);
         gfx_text_fit(g_fonts.s12, sx + 16, cy + 122, sw - 32, g_mt32.status[0] ? g_mt32.status : "Nothing loaded.", C_AMBER, 255);
         snprintf(b, sizeof b, "%d file%s seen", g_mt32.roms_found, g_mt32.roms_found == 1 ? "" : "s");
         gfx_text(g_fonts.mo10, sx + 16, cy + 146, b, C_GREY, 255, 0);

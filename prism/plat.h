@@ -29,6 +29,7 @@ int  plat_thread_start(const char *name, int (*fn)(unsigned int, void *), int au
 int  plat_par_start(int workers);       /* helper threads beyond the caller; returns the number created */
 int  plat_par_workers(void);
 void plat_par_run(void (*job)(void *, int), void *arg, int count);
+void plat_par_stats(unsigned int out[4]);   /* work in us since the last call: caller, helper 1, helper 2, caller's wait */
 void plat_bench_core(int on);           /* 1: move the caller to the audio core for a measurement; 0: move it back */
 
 int  plat_audio_open(void);

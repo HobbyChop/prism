@@ -133,6 +133,7 @@ static SceUID s_par_go[PAR_MAX], s_par_done = -1;
 static void (*volatile s_par_fn)(void *, int) = NULL;
 static void *volatile s_par_arg = NULL;
 static int s_par_workers = 0;
+static volatile unsigned int s_par_us[PAR_MAX], s_par_wait_us;   /* work per thread and the caller's wait, since the last read */
 
 static int par_worker(unsigned int args, void *argp)
 {
@@ -143,7 +144,9 @@ static int par_worker(unsigned int args, void *argp)
         sceKernelWaitEventFlag(s_par_go[k], 3, SCE_EVENT_WAITOR | SCE_EVENT_WAITCLEAR_PAT, &r, NULL);
         if (r & 2) break;
         void (*fn)(void *, int) = s_par_fn;
+        unsigned int t0 = sceKernelGetProcessTimeLow();
         if (fn) fn(s_par_arg, k);
+        __sync_fetch_and_add(&s_par_us[k], sceKernelGetProcessTimeLow() - t0);
         sceKernelSetEventFlag(s_par_done, 1u << k);
     }
     return 0;
@@ -182,11 +185,23 @@ void plat_par_run(void (*fn)(void *, int), void *arg, int count)
     s_par_arg = arg;
     unsigned int mask = 0;
     for (int k = 1; k <= extra; k++) { mask |= 1u << k; sceKernelSetEventFlag(s_par_go[k], 1); }
+    unsigned int t0 = sceKernelGetProcessTimeLow();
     fn(arg, 0);
+    unsigned int t1 = sceKernelGetProcessTimeLow();
+    __sync_fetch_and_add(&s_par_us[0], t1 - t0);
     if (mask) {
         unsigned int r = 0;
         sceKernelWaitEventFlag(s_par_done, mask, SCE_EVENT_WAITAND | SCE_EVENT_WAITCLEAR_PAT, &r, NULL);
+        __sync_fetch_and_add(&s_par_wait_us, sceKernelGetProcessTimeLow() - t1);
     }
+}
+
+/* microseconds of work since the last call: the caller's share, helper 1,
+ * helper 2, then the caller's wait for the helpers */
+void plat_par_stats(unsigned int out[4])
+{
+    for (int k = 0; k < 3; k++) out[k] = __sync_lock_test_and_set(&s_par_us[k], 0);
+    out[3] = __sync_lock_test_and_set(&s_par_wait_us, 0);
 }
 
 /* ---- audio ---- */

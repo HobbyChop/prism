@@ -91,6 +91,7 @@ user shim are shipped as binaries in prism/module.
     prism/sf/       GeneralUser GS
     prism/module/   the MIDI kernel module and user shim, prebuilt
     prism/credits/  credits and licence texts, installed with the app
+    prism/sce_sys/  LiveArea icon, background and gate; tools/mkart.py draws them
     munt/           Munt 2.8.2 library source with the changes, and the patch
 
 ## Licences

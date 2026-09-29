@@ -150,6 +150,7 @@ int main(int argc, char **argv)
         if (lost >= 120) { lost = 1; plat_midi_represent(); }
         st.batt_pct = batt; st.batt_charging = chg;
         st.voices = g_syn_voices; st.poly = g_syn_poly; st.load = g_syn_load; st.load_avg = g_syn_load_avg;
+        for (int c = 0; c < 3; c++) st.core_load[c] = g_syn_core_load[c];
         /* draw every other frame in MT-32 mode to leave core 0 to the helper thread */
         int draw = !(g_syn_mode == 1 && mt32_is_open() && (frame & 1));
         ui_frame(&st, &pad, draw);
