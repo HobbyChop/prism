@@ -33,6 +33,24 @@ through Munt. MIDI comes in over USB from the PSP-MIDI adapter.
   MIDI driver is a kernel module and loads from the app's own folder.
 - The PSP-MIDI adapter on the USB port.
 
+## SoundFonts
+
+Put SoundFont files (.sf2) in ux0:data/prism/soundfonts. They appear in the
+list on SETUP the next time the page opens. A bank is loaded whole into
+memory, so the size limit is the free memory at launch less about 4 MB for
+the loader: the boot screen prints it as "Memory: N MB free for banks" and
+SETUP shows it as ROOM FOR A BANK OF N MB. Banks over that are listed in red.
+The built-in GeneralUser GS is 32 MB. SF3 files, which compress their
+samples, are not supported.
+
+## MT-32 ROMs
+
+PRISM does not include the MT-32 ROMs. To use MT-32 mode you need your own
+dumps of the control and PCM ROMs of an MT-32 or CM-32L you own:
+MT32_CONTROL.ROM and MT32_PCM.ROM, or the CM-32L pair. Put them in
+ux0:data/prism/mt32. Without them the MT-32 page says NO ROMS LOADED and
+the mode stays off. GM mode needs nothing extra.
+
 ## Install
 
 Install prism.vpk with VitaShell. The first launch creates ux0:data/prism
@@ -72,6 +90,7 @@ user shim are shipped as binaries in prism/module.
     prism/fonts/    IBM Plex atlases and their sources; tools/mkfont.py makes them
     prism/sf/       GeneralUser GS
     prism/module/   the MIDI kernel module and user shim, prebuilt
+    prism/credits/  credits and licence texts, installed with the app
     munt/           Munt 2.8.2 library source with the changes, and the patch
 
 ## Licences

@@ -14,7 +14,7 @@ include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "PRISM")
 set(VITA_TITLEID  "PRISM0001")
-set(VITA_VERSION  "00.20")
+set(VITA_VERSION  "00.21")
 # ATTRIBUTE2=12: large memory mode for big banks
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d PARENTAL_LEVEL=1 -d ATTRIBUTE2=12")
 
@@ -66,6 +66,11 @@ vita_create_vpk(${SHORT_NAME}.vpk ${VITA_TITLEID} ${SHORT_NAME}.self
   FILE ${PROJECT_SOURCE_DIR}/sf/GeneralUser-GS.sf2 sf/GeneralUser-GS.sf2
   FILE ${PROJECT_SOURCE_DIR}/sf/LICENSE.txt sf/LICENSE-GeneralUser-GS.txt
   FILE ${PROJECT_SOURCE_DIR}/fonts/src/OFL.txt fonts/OFL-IBM-Plex.txt
+  FILE ${PROJECT_SOURCE_DIR}/credits/CREDITS.txt credits/CREDITS.txt
+  FILE ${PROJECT_SOURCE_DIR}/credits/LGPL-2.1-Munt.txt credits/LGPL-2.1-Munt.txt
+  FILE ${PROJECT_SOURCE_DIR}/credits/Munt-AUTHORS.txt credits/Munt-AUTHORS.txt
+  FILE ${PROJECT_SOURCE_DIR}/credits/MIT-TinySoundFont.txt credits/MIT-TinySoundFont.txt
+  FILE ${PROJECT_SOURCE_DIR}/credits/munt-prism-parallel.patch credits/munt-prism-parallel.patch
   FILE ${PROJECT_SOURCE_DIR}/fonts/sans11.fnt fonts/sans11.fnt
   FILE ${PROJECT_SOURCE_DIR}/fonts/sans12.fnt fonts/sans12.fnt
   FILE ${PROJECT_SOURCE_DIR}/fonts/sans13.fnt fonts/sans13.fnt

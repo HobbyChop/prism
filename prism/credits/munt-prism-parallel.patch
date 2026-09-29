@@ -1,0 +1,714 @@
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.cpp /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.cpp
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.cpp	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.cpp	2026-09-28 19:20:16.117860100 -0700
+@@ -22,6 +22,8 @@
+ #include "LA32WaveGenerator.h"
+ #include "Tables.h"
+ 
++extern "C" int mt32emu_prism_selfcheck;
++
+ namespace MT32Emu {
+ 
+ static const Bit32u SINE_SEGMENT_RELATIVE_LENGTH = 1 << 18;
+@@ -31,14 +33,15 @@
+ static const LogSample SILENCE = {65535, LogSample::POSITIVE};
+ 
+ // These two tables are accessed extremely often. Keeping the direct pointers here significantly improves performance in most cases.
+-static const Bit16u *exp9;
+-static const Bit16u *logsin9;
++static Bit16u exp9[512];   // PRISM: tables as arrays
++static Bit16u logsin9[512];
+ // This is accessed less often, but it's still on the critical path.
+ static const Bit8u *resAmpDecayFactors;
+ 
+ namespace LA32Utilites {
+ 
+-static inline Bit16u interpolateExp(const Bit16u fract) {
++// PRISM: original interpolation, kept as the reference for the table check
++static inline Bit16u interpolateExpRef(const Bit16u fract) {
+ 	Bit16u expTabIndex = fract >> 3;
+ 	Bit16u extraBits = ~fract & 7;
+ 	Bit16u expTabEntry2 = 8191 - exp9[expTabIndex];
+@@ -46,6 +49,12 @@
+ 	return expTabEntry2 + (((expTabEntry1 - expTabEntry2) * extraBits) >> 3);
+ }
+ 
++// PRISM: single lookup; filled from the reference at start-up
++static Bit16u interpExpTab[4096];
++static inline Bit16u interpolateExp(const Bit16u fract) {
++	return interpExpTab[fract & 4095];
++}
++
+ static inline Bit16s unlog(const LogSample &logSample) {
+ 	//Bit16s sample = (Bit16s)EXP2F(13.0f - logSample.logValue / 4096.0f);
+ 	Bit32u intLogValue = logSample.logValue >> 12;
+@@ -62,10 +71,18 @@
+ 
+ } // namespace LA32Utilites
+ 
++Bit32u LA32WaveGenerator::getPitchBase() {
++	if (!pitchCacheValid || pitch != cachedPitch) {
++		cachedPitch = pitch;
++		cachedPitchBase = Bit32u(LA32Utilites::interpolateExp(~pitch & 4095)) << (pitch >> 12);
++		pitchCacheValid = true;
++	}
++	return cachedPitchBase;
++}
++
+ Bit32u LA32WaveGenerator::getSampleStep() {
+ 	// sampleStep = EXP2F(pitch / 4096.0f + 4.0f)
+-	Bit32u sampleStep = LA32Utilites::interpolateExp(~pitch & 4095);
+-	sampleStep <<= pitch >> 12;
++	Bit32u sampleStep = getPitchBase();
+ 	sampleStep >>= 8;
+ 	sampleStep &= ~1;
+ 	return sampleStep;
+@@ -133,10 +150,14 @@
+ 	wavePosition %= 4 * SINE_SEGMENT_RELATIVE_LENGTH;
+ 
+ 	Bit32u effectiveCutoffValue = (cutoffVal > MIDDLE_CUTOFF_VALUE) ? (cutoffVal - MIDDLE_CUTOFF_VALUE) >> 10 : 0;
+-	Bit32u resonanceWaveLengthFactor = getResonanceWaveLengthFactor(effectiveCutoffValue);
+-	Bit32u highLinearLength = getHighLinearLength(effectiveCutoffValue);
+-	Bit32u lowLinearLength = (resonanceWaveLengthFactor << 8) - 4 * SINE_SEGMENT_RELATIVE_LENGTH - highLinearLength;
+-	computePositions(highLinearLength, lowLinearLength, resonanceWaveLengthFactor);
++	if (!cutoffCacheValid || effectiveCutoffValue != cachedEffectiveCutoff) {
++		cachedEffectiveCutoff = effectiveCutoffValue;
++		cachedResonanceWaveLengthFactor = getResonanceWaveLengthFactor(effectiveCutoffValue);
++		cachedHighLinearLength = getHighLinearLength(effectiveCutoffValue);
++		cachedLowLinearLength = (cachedResonanceWaveLengthFactor << 8) - 4 * SINE_SEGMENT_RELATIVE_LENGTH - cachedHighLinearLength;
++		cutoffCacheValid = true;
++	}
++	computePositions(cachedHighLinearLength, cachedLowLinearLength, cachedResonanceWaveLengthFactor);
+ 
+ 	resonancePhase = ResonancePhase(((resonanceSinePosition >> 18) + (phase > POSITIVE_FALLING_SINE_SEGMENT ? 2 : 0)) & 3);
+ }
+@@ -249,8 +270,7 @@
+ 		secondPCMLogSample = SILENCE;
+ 	}
+ 	// pcmSampleStep = (Bit32u)EXP2F(pitch / 4096.0f + 3.0f);
+-	Bit32u pcmSampleStep = LA32Utilites::interpolateExp(~pitch & 4095);
+-	pcmSampleStep <<= pitch >> 12;
++	Bit32u pcmSampleStep = getPitchBase();
+ 	// Seeing the actual lengths of the PCM wave for pitches 00..12,
+ 	// the pcmPosition counter can be assumed to have 8-bit fractions
+ 	pcmSampleStep >>= 9;
+@@ -278,6 +298,7 @@
+ 	resonancePhase = POSITIVE_RISING_RESONANCE_SINE_SEGMENT;
+ 	resonanceAmpSubtraction = (32 - resonance) << 10;
+ 	resAmpDecayFactor = resAmpDecayFactors[resonance >> 2] << 2;
++	pitchCacheValid = cutoffCacheValid = false;
+ 
+ 	pcmWaveAddress = NULL;
+ 	active = true;
+@@ -288,6 +309,7 @@
+ 	pcmWaveLength = usePCMWaveLength;
+ 	pcmWaveLooped = usePCMWaveLooped;
+ 	pcmWaveInterpolated = usePCMWaveInterpolated;
++	pitchCacheValid = cutoffCacheValid = false;
+ 
+ 	wavePosition = 0;
+ 	active = true;
+@@ -348,9 +370,20 @@
+ }
+ 
+ void LA32IntPartialPair::initTables(const Tables &tables) {
+-	exp9 = tables.exp9;
+-	logsin9 = tables.logsin9;
++	for (int i = 0; i < 512; i++) {
++		exp9[i] = tables.exp9[i];
++		logsin9[i] = tables.logsin9[i];
++	}
+ 	resAmpDecayFactors = tables.resAmpDecayFactors;
++	// PRISM: interpolation table, verified against the function it replaces
++	bool exact = true;
++	for (Bit32u f = 0; f < 4096; f++) {
++		LA32Utilites::interpExpTab[f] = LA32Utilites::interpolateExpRef(Bit16u(f));
++	}
++	for (Bit32u f = 0; f < 4096; f++) {
++		if (LA32Utilites::interpolateExp(Bit16u(f)) != LA32Utilites::interpolateExpRef(Bit16u(f))) exact = false;
++	}
++	mt32emu_prism_selfcheck |= exact ? 0x101 : 0x100;
+ }
+ 
+ void LA32IntPartialPair::init(const bool useRingModulated, const bool useMixed) {
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.h /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.h
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.h	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/LA32WaveGenerator.h	2026-09-28 19:20:16.118858600 -0700
+@@ -117,6 +117,14 @@
+ 	// since the length of the resonance wave is always equal to four square wave sine segments.
+ 	Bit32u resonanceSinePosition;
+ 
++	// PRISM: values derived from the pitch and the cutoff by exponent lookups, cached while the
++	// input is unchanged
++	bool pitchCacheValid, cutoffCacheValid;
++	Bit16u cachedPitch;
++	Bit32u cachedPitchBase;
++	Bit32u cachedEffectiveCutoff;
++	Bit32u cachedResonanceWaveLengthFactor, cachedHighLinearLength, cachedLowLinearLength;
++
+ 	// The amp of the resonance sine wave grows with the resonance value
+ 	// As the resonance value cannot change while the partial is active, it is initialised once
+ 	Bit32u resonanceAmpSubtraction;
+@@ -157,6 +165,7 @@
+ 	// Internal methods below
+ 	//***************************************************************************
+ 
++	Bit32u getPitchBase();
+ 	Bit32u getSampleStep();
+ 	Bit32u getResonanceWaveLengthFactor(Bit32u effectiveCutoffValue);
+ 	Bit32u getHighLinearLength(Bit32u effectiveCutoffValue);
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/Partial.cpp /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Partial.cpp
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/Partial.cpp	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Partial.cpp	2026-09-28 19:20:16.118858600 -0700
+@@ -29,6 +29,11 @@
+ #include "TVF.h"
+ #include "TVP.h"
+ 
++// PRISM: start-up self-check result: 0x100 ran, bit 0 exp table exact, bit 1 clipper exact
++extern "C" {
++	int mt32emu_prism_selfcheck = 0;
++}
++
+ namespace MT32Emu {
+ 
+ static const Bit8u PAN_NUMERATOR_MASTER[] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7};
+@@ -61,6 +66,17 @@
+ 	LA32Ramp::initTables(tables);
+ 	TVA::initTables(tables);
+ 	TVF::initTables(tables);
++	{   // PRISM: check the saturating clipper against the reference
++		bool exact = true;
++		for (Bit32s x = -262144; x <= 262144; x += 3) {
++			if (Synth::clipSampleEx(x) != Synth::clipSampleExRef(x)) exact = false;
++		}
++		static const Bit32s edges[] = { Bit32s(0x80000000u), -0x7FFFFFFF, -0x10000, -32769, -32768, -32767, -1, 0, 1, 32766, 32767, 32768, 0xFFFF, 0x7FFFFFFF };
++		for (unsigned int i = 0; i < sizeof(edges) / sizeof(edges[0]); i++) {
++			if (Synth::clipSampleEx(edges[i]) != Synth::clipSampleExRef(edges[i])) exact = false;
++		}
++		mt32emu_prism_selfcheck |= exact ? 0x102 : 0x100;
++	}
+ 	return true;
+ }
+ 
+@@ -81,6 +97,7 @@
+ 	ownerPart = -1;
+ 	poly = NULL;
+ 	pair = NULL;
++	pendingDeactivation = false;
+ 	switch (synth->getSelectedRendererType()) {
+ 	case RendererType_BIT16S:
+ 		la32Pair = new LA32IntPartialPair;
+@@ -128,6 +145,7 @@
+ }
+ 
+ void Partial::deactivate() {
++	pendingDeactivation = false;
+ 	if (!isActive()) {
+ 		return;
+ 	}
+@@ -334,16 +352,16 @@
+ template <class LA32PairImpl>
+ bool Partial::generateNextSample(LA32PairImpl *la32PairImpl) {
+ 	if (!tva->isPlaying() || !la32PairImpl->isActive(LA32PartialPair::MASTER)) {
+-		deactivate();
++		deferDeactivation();
+ 		return false;
+ 	}
+ 	la32PairImpl->generateNextSample(LA32PartialPair::MASTER, getAmpValue(), tvp->nextPitch(), getCutoffValue());
+ 	if (hasRingModulatingSlave()) {
+ 		la32PairImpl->generateNextSample(LA32PartialPair::SLAVE, pair->getAmpValue(), pair->tvp->nextPitch(), pair->getCutoffValue());
+ 		if (!pair->tva->isPlaying() || !la32PairImpl->isActive(LA32PartialPair::SLAVE)) {
+-			pair->deactivate();
++			pair->deferDeactivation();
+ 			if (mixType == 2) {
+-				deactivate();
++				deferDeactivation();
+ 				return false;
+ 			}
+ 		}
+@@ -422,4 +440,31 @@
+ 	tvf->startDecay();
+ }
+ 
++// PRISM: stop the LA32 side now (owned by this partial or its pair, which renders on the same
++// thread); do the shared bookkeeping after the pass
++void Partial::deferDeactivation() {
++	if (!isActive() || pendingDeactivation) {
++		return;
++	}
++	pendingDeactivation = true;
++	if (isRingModulatingSlave()) {
++		pair->la32Pair->deactivate(LA32PartialPair::SLAVE);
++	} else {
++		la32Pair->deactivate(LA32PartialPair::MASTER);
++		if (hasRingModulatingSlave()) {
++			pair->deferDeactivation();
++		}
++	}
++}
++
++void Partial::applyDeferredDeactivation() {
++	if (pendingDeactivation) {
++		deactivate();
++	}
++}
++
++bool Partial::isRenderable() const {
++	return isActive() && !alreadyOutputed && !isRingModulatingSlave() && poly != NULL;
++}
++
+ } // namespace MT32Emu
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/Partial.h /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Partial.h
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/Partial.h	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Partial.h	2026-09-28 19:20:16.119859700 -0700
+@@ -39,6 +39,8 @@
+ // A partial represents one of up to four waveform generators currently playing within a poly.
+ class Partial {
+ private:
++	// PRISM: padding so no cache line is shared with a neighbouring partial's objects
++	char cacheLinePadHead[64];
+ 	Synth *synth;
+ 	const int partialIndex; // Index of this Partial in the global partial table
+ 	// Number of the sample currently being rendered by produceOutput(), or 0 if no run is in progress
+@@ -80,6 +82,13 @@
+ 	const PatchCache *patchCache;
+ 	PatchCache cachebackup;
+ 
++	// PRISM: a partial that ends inside a render pass defers the shared bookkeeping (free list,
++	// poly, part) to the end of the pass so passes can run on several threads. Its own LA32 side
++	// stops immediately.
++	bool pendingDeactivation;
++	char cacheLinePadTail[64];
++	void deferDeactivation();
++
+ 	Bit32u getAmpValue();
+ 	Bit32u getCutoffValue();
+ 
+@@ -105,6 +114,8 @@
+ 	bool isActive() const;
+ 	void activate(int part);
+ 	void deactivate(void);
++	void applyDeferredDeactivation();
++	bool isRenderable() const;
+ 	void startPartial(const Part *part, Poly *usePoly, const PatchCache *useCache, const MemParams::RhythmTemp *rhythmTemp, Partial *pairPartial);
+ 	void startAbort();
+ 	void startDecayAll();
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/PartialManager.cpp /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/PartialManager.cpp
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/PartialManager.cpp	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/PartialManager.cpp	2026-09-28 19:20:16.120859400 -0700
+@@ -359,4 +359,15 @@
+ 	}
+ }
+ 
++// PRISM
++void PartialManager::applyDeferredDeactivations() {
++	for (unsigned int i = 0; i < synth->getPartialCount(); i++) {
++		partialTable[i]->applyDeferredDeactivation();
++	}
++}
++
++bool PartialManager::isRenderable(int i) const {
++	return partialTable[i]->isRenderable();
++}
++
+ } // namespace MT32Emu
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/PartialManager.h /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/PartialManager.h
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/PartialManager.h	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/PartialManager.h	2026-09-28 19:20:16.120859400 -0700
+@@ -66,6 +66,9 @@
+ 	Poly *assignPolyToPart(Part *part);
+ 	void polyFreed(Poly *poly);
+ 	void partialDeactivated(int partialIndex);
++	// PRISM
++	void applyDeferredDeactivations();
++	bool isRenderable(int i) const;
+ }; // class PartialManager
+ 
+ } // namespace MT32Emu
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/Synth.cpp /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Synth.cpp
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/Synth.cpp	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Synth.cpp	2026-09-28 19:20:16.122858600 -0700
+@@ -38,6 +38,18 @@
+ #include "mmath.h"
+ #endif
+ 
++// PRISM: the host may install a runner that calls job(arg, k) for k in [0, count) concurrently, k =
++// 0 on the calling thread, and returns when all are done. The renderer then distributes the
++// sounding partials across threads. Without a runner nothing changes.
++extern "C" {
++	typedef void (*mt32emu_job_fn)(void *arg, int index);
++	void (*mt32emu_parallel_run)(mt32emu_job_fn job, void *arg, int count) = NULL;
++	int mt32emu_parallel_count = 1;
++	// PRISM: while a poly is aborting, passes may be this long instead of one sample; the pending
++	// note starts up to that many samples late
++	int mt32emu_abort_chunk = 1;
++}
++
+ namespace MT32Emu {
+ 
+ // MIDI interface data transfer rate in samples. Used to simulate the transfer delay.
+@@ -205,6 +217,19 @@
+ 	virtual void renderStreams(const DACOutputStreams<FloatSample> &streams, Bit32u len) = 0;
+ };
+ 
++// PRISM: mix a helper thread's share into the main streams
++static inline void mixShareInto(IntSample *dst, const IntSample *src, Bit32u len) {
++	while (len--) {
++		*dst = Synth::clipSampleEx(IntSampleEx(*dst) + IntSampleEx(*src++));
++		++dst;
++	}
++}
++static inline void mixShareInto(FloatSample *dst, const FloatSample *src, Bit32u len) {
++	while (len--) {
++		*dst++ += *src++;
++	}
++}
++
+ template <class Sample>
+ class RendererImpl : public Renderer {
+ 	// These buffers are used for building the output streams as they are found at the DAC entrance.
+@@ -223,11 +248,35 @@
+ 		return buffers;
+ 	}
+ 
++	// PRISM: per-thread streams for a pass. Slot 0 is the caller's and points at the main streams.
++	enum { PAR_MAX = 4, PAR_ITEMS_MAX = 256 };
++	Sample *parBuf[PAR_MAX][4];
++	int parItems[PAR_ITEMS_MAX];
++	bool parReverb[PAR_ITEMS_MAX];
++	struct ParJob { RendererImpl<Sample> *r; Bit32u len; int count; int n; int next; };
++	ParJob parJob;
++	static void parRun(void *arg, int k);
++	void produceStreamsParallel(Sample *nonReverbLeft, Sample *nonReverbRight, Sample *reverbDryLeft, Sample *reverbDryRight, Bit32u len, int count);
++
+ public:
+ 	RendererImpl(Synth &useSynth) :
+ 		Renderer(useSynth),
+ 		tmpBuffers(createTmpBuffers())
+-	{}
++	{
++		for (int k = 0; k < PAR_MAX; k++) {
++			for (int j = 0; j < 4; j++) {
++				parBuf[k][j] = k == 0 ? NULL : new Sample[MAX_SAMPLES_PER_RUN];
++			}
++		}
++	}
++
++	~RendererImpl() {
++		for (int k = 1; k < PAR_MAX; k++) {
++			for (int j = 0; j < 4; j++) {
++				delete[] parBuf[k][j];
++			}
++		}
++	}
+ 
+ 	void render(IntSample *stereoStream, Bit32u len);
+ 	void render(FloatSample *stereoStream, Bit32u len);
+@@ -2452,21 +2501,57 @@
+ 	while (len > 0) {
+ 		// We need to ensure zero-duration notes will play so add minimum 1-sample delay.
+ 		Bit32u thisLen = 1;
++		if (mt32emu_abort_chunk > 1) {
++			thisLen = Bit32u(mt32emu_abort_chunk);
++			if (thisLen > len) thisLen = len;
++		}
+ 		if (!isAbortingPoly()) {
+-			const volatile MidiEventQueue::MidiEvent *nextEvent = getMidiQueue().peekMidiEvent();
+-			Bit32s samplesToNextEvent = (nextEvent != NULL) ? Bit32s(nextEvent->timestamp - getRenderedSampleCount()) : MAX_SAMPLES_PER_RUN;
+-			if (samplesToNextEvent > 0) {
+-				thisLen = len > MAX_SAMPLES_PER_RUN ? MAX_SAMPLES_PER_RUN : len;
+-				if (thisLen > Bit32u(samplesToNextEvent)) {
+-					thisLen = samplesToNextEvent;
++			// PRISM: play every due event before the pass instead of one event per single-sample
++			// pass. A one-sample gap remains before a note-off whose note-on was played since the
++			// last pass, so zero-length notes still sound.
++			Bit32u gapKeys[16];
++			int gapCount = 0;
++			for (;;) {
++				const volatile MidiEventQueue::MidiEvent *nextEvent = getMidiQueue().peekMidiEvent();
++				Bit32s samplesToNextEvent = (nextEvent != NULL) ? Bit32s(nextEvent->timestamp - getRenderedSampleCount()) : MAX_SAMPLES_PER_RUN;
++				if (samplesToNextEvent > 0) {
++					thisLen = len > MAX_SAMPLES_PER_RUN ? MAX_SAMPLES_PER_RUN : len;
++					if (thisLen > Bit32u(samplesToNextEvent)) {
++						thisLen = samplesToNextEvent;
++					}
++					break;
+ 				}
+-			} else {
+ 				if (nextEvent->sysexData == NULL) {
+-					synth.playMsgNow(nextEvent->shortMessageData);
++					Bit32u msg = nextEvent->shortMessageData;
++					Bit32u status = msg & 0xF0;
++					Bit32u chanKey = ((msg & 0x0F) << 8) | ((msg >> 8) & 0x7F);
++					Bit32u vel = (msg >> 16) & 0x7F;
++					bool noteOn = status == 0x90 && vel != 0;
++					bool noteOff = status == 0x80 || (status == 0x90 && vel == 0);
++					if (noteOff) {
++						bool sameInstant = false;
++						for (int i = 0; i < gapCount; i++) {
++							if (gapKeys[i] == chanKey) sameInstant = true;
++						}
++						if (sameInstant) {
++							thisLen = 1;
++							break;
++						}
++					}
++					synth.playMsgNow(msg);
+ 					// If a poly is aborting we don't drop the event from the queue.
+ 					// Instead, we'll return to it again when the abortion is done.
+-					if (!isAbortingPoly()) {
+-						getMidiQueue().dropMidiEvent();
++					if (isAbortingPoly()) {
++						break;
++					}
++					getMidiQueue().dropMidiEvent();
++					if (noteOn) {
++						if (gapCount < 16) {
++							gapKeys[gapCount++] = chanKey;
++						} else {
++							thisLen = 1;
++							break;
++						}
+ 					}
+ 				} else {
+ 					synth.playSysexNow(nextEvent->sysexData, nextEvent->sysexLength);
+@@ -2644,6 +2729,57 @@
+ 	}
+ }
+ 
++// PRISM: the partials sounding in this pass, distributed across threads. A ring-modulating pair
++// counts once, under its master, and renders on one thread.
++template <class Sample>
++void RendererImpl<Sample>::parRun(void *arg, int k) {
++	ParJob *job = static_cast<ParJob *>(arg);
++	RendererImpl<Sample> &r = *job->r;
++	// PRISM: each thread claims the next partial from a shared counter, so a stalled thread holds
++	// only one partial and the shares balance
++	for (;;) {
++		int t = __sync_fetch_and_add(&job->next, 1);
++		if (t >= job->n) break;
++		int i = r.parItems[t];
++		if (r.parReverb[t]) {
++			r.getPartialManager().produceOutput(i, r.parBuf[k][2], r.parBuf[k][3], job->len);
++		} else {
++			r.getPartialManager().produceOutput(i, r.parBuf[k][0], r.parBuf[k][1], job->len);
++		}
++	}
++}
++
++template <class Sample>
++void RendererImpl<Sample>::produceStreamsParallel(Sample *nonReverbLeft, Sample *nonReverbRight, Sample *reverbDryLeft, Sample *reverbDryRight, Bit32u len, int count) {
++	int n = 0;
++	for (unsigned int i = 0; i < synth.getPartialCount() && n < PAR_ITEMS_MAX; i++) {
++		if (getPartialManager().isRenderable(i)) {
++			parItems[n] = int(i);
++			parReverb[n] = getPartialManager().shouldReverb(i);
++			n++;
++		}
++	}
++	if (count > n) count = n;
++	parBuf[0][0] = nonReverbLeft; parBuf[0][1] = nonReverbRight;
++	parBuf[0][2] = reverbDryLeft; parBuf[0][3] = reverbDryRight;
++	parJob.r = this; parJob.len = len; parJob.count = count < 1 ? 1 : count; parJob.n = n; parJob.next = 0;
++	if (count < 2) {
++		parRun(&parJob, 0);
++		return;
++	}
++	for (int k = 1; k < count; k++) {
++		for (int j = 0; j < 4; j++) {
++			Synth::muteSampleBuffer(parBuf[k][j], len);
++		}
++	}
++	mt32emu_parallel_run(parRun, &parJob, count);
++	for (int k = 1; k < count; k++) {
++		for (int j = 0; j < 4; j++) {
++			mixShareInto(parBuf[0][j], parBuf[k][j], len);
++		}
++	}
++}
++
+ template <class Sample>
+ void RendererImpl<Sample>::produceStreams(const DACOutputStreams<Sample> &streams, Bit32u len) {
+ 	if (isActivated()) {
+@@ -2658,13 +2794,21 @@
+ 		Synth::muteSampleBuffer(reverbDryLeft, len);
+ 		Synth::muteSampleBuffer(reverbDryRight, len);
+ 
+-		for (unsigned int i = 0; i < synth.getPartialCount(); i++) {
+-			if (getPartialManager().shouldReverb(i)) {
+-				getPartialManager().produceOutput(i, reverbDryLeft, reverbDryRight, len);
+-			} else {
+-				getPartialManager().produceOutput(i, nonReverbLeft, nonReverbRight, len);
++		// PRISM: use several threads when a runner is installed and the pass is long enough
++		int parCount = (mt32emu_parallel_run != NULL && len >= 16) ? mt32emu_parallel_count : 1;
++		if (parCount > PAR_MAX) parCount = PAR_MAX;
++		if (parCount > 1) {
++			produceStreamsParallel(nonReverbLeft, nonReverbRight, reverbDryLeft, reverbDryRight, len, parCount);
++		} else {
++			for (unsigned int i = 0; i < synth.getPartialCount(); i++) {
++				if (getPartialManager().shouldReverb(i)) {
++					getPartialManager().produceOutput(i, reverbDryLeft, reverbDryRight, len);
++				} else {
++					getPartialManager().produceOutput(i, nonReverbLeft, nonReverbRight, len);
++				}
+ 			}
+ 		}
++		getPartialManager().applyDeferredDeactivations();
+ 
+ 		produceLA32Output(reverbDryLeft, len);
+ 		produceLA32Output(reverbDryRight, len);
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/Synth.h /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Synth.h
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/Synth.h	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/Synth.h	2026-09-28 19:20:16.122858600 -0700
+@@ -272,14 +272,22 @@
+ 	void playUnpackedShortMessage(Bit8u partNum, Bit8u command, Bit8u data1, Bit8u data2);
+ 
+ public:
+-	static inline Bit16s clipSampleEx(Bit32s sampleEx) {
++	static inline Bit16s clipSampleExRef(Bit32s sampleEx) {
+ 		// Clamp values above 32767 to 32767, and values below -32768 to -32768
+-		// FIXME: Do we really need this stuff? I think these branches are very well predicted. Instead, this introduces a chain.
+-		// The version below is actually a bit faster on my system...
+-		//return ((sampleEx + 0x8000) & ~0xFFFF) ? Bit16s((sampleEx >> 31) ^ 0x7FFF) : (Bit16s)sampleEx;
+ 		return ((-0x8000 <= sampleEx) && (sampleEx <= 0x7FFF)) ? Bit16s(sampleEx) : Bit16s((sampleEx >> 31) ^ 0x7FFF);
+ 	}
+ 
++	static inline Bit16s clipSampleEx(Bit32s sampleEx) {
++#if defined(__arm__) && !defined(MT32EMU_NO_SSAT)
++		// PRISM: ARM saturating instruction; checked against the reference at start-up
++		Bit32s r;
++		__asm__("ssat %0, #16, %1" : "=r"(r) : "r"(sampleEx));
++		return Bit16s(r);
++#else
++		return clipSampleExRef(sampleEx);
++#endif
++	}
++
+ 	static inline float clipSampleEx(float sampleEx) {
+ 		return sampleEx;
+ 	}
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/TVA.cpp /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVA.cpp
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/TVA.cpp	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVA.cpp	2026-09-28 18:21:14.971967800 -0700
+@@ -254,10 +254,6 @@
+ 	startRamp(newTarget, newIncrement, TVA_PHASE_SUSTAIN - 1);
+ }
+ 
+-bool TVA::isPlaying() const {
+-	return playing;
+-}
+-
+ int TVA::getPhase() const {
+ 	return phase;
+ }
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/TVA.h /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVA.h
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/TVA.h	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVA.h	2026-09-28 19:20:16.122858600 -0700
+@@ -93,7 +93,7 @@
+ 	void startDecay();
+ 	void startAbort();
+ 
+-	bool isPlaying() const;
++	bool isPlaying() const { return playing; }   // PRISM: inline, called every sample
+ 	int getPhase() const;
+ }; // class TVA
+ 
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/TVF.cpp /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVF.cpp
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/TVF.cpp	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVF.cpp	2026-09-28 18:21:14.971967800 -0700
+@@ -173,10 +173,6 @@
+ 	startRamp(newTarget, newIncrement, PHASE_2 - 1);
+ }
+ 
+-Bit8u TVF::getBaseCutoff() const {
+-	return baseCutoff;
+-}
+-
+ void TVF::handleInterrupt() {
+ 	nextPhase();
+ }
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/TVF.h /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVF.h
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/TVF.h	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVF.h	2026-09-28 19:20:16.124363400 -0700
+@@ -54,7 +54,7 @@
+ 	// for the lifetime of the partial.
+ 	// Barring bugs, the number returned is confirmed accurate
+ 	// (based on specs from Mok).
+-	Bit8u getBaseCutoff() const;
++	Bit8u getBaseCutoff() const { return baseCutoff; }   // PRISM: inline, called every sample
+ 	void handleInterrupt();
+ 	void startDecay();
+ }; // class TVF
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/TVP.cpp /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVP.cpp
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/TVP.cpp	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVP.cpp	2026-09-28 19:20:16.125935900 -0700
+@@ -79,7 +79,9 @@
+ 		partial->getSynth()->controlROMFeatures->quirkFastPitchChanges
+ 		? PROCESS_TIMER_TICKS_PER_SAMPLE_X16_3_GEN
+ 		: PROCESS_TIMER_TICKS_PER_SAMPLE_X16_1N2_GEN)
+-{}
++{
++	jitterState = 0x2545F491u + Bit32u(usePartial->debugGetPartialNum()) * 0x9E3779B9u;
++}
+ 
+ static Bit16s keyToPitch(unsigned int key) {
+ 	// We're using a table to do: return round_to_nearest_or_even((key - 60) * (4096.0 / 12.0))
+@@ -318,21 +320,18 @@
+ 	targetPitchOffsetReachedBigTick = timeElapsed >> 8; // FIXME: Afaict there's no good reason for this - check
+ }
+ 
+-Bit16u TVP::nextPitch() {
++void TVP::processTimerTick() {
+ 	// We emulate MCU software timer using these counter and processTimerIncrement variables.
+ 	// The value of NOMINAL_PROCESS_TIMER_PERIOD_SAMPLES approximates the period in samples
+ 	// between subsequent firings of the timer that normally occur.
+ 	// However, accurate emulation is quite complicated because the timer is not guaranteed to fire in time.
+ 	// This makes pitch variations on real unit non-deterministic and dependent on various factors.
+-	if (counter == 0) {
+-		timeElapsed = (timeElapsed + processTimerIncrement) & 0x00FFFFFF;
+-		// This roughly emulates pitch deviations observed on real units when playing a single partial that uses TVP/LFO.
+-		counter = NOMINAL_PROCESS_TIMER_PERIOD_SAMPLES + (rand() & 3);
+-		processTimerIncrement = (processTimerTicksPerSampleX16 * counter) >> 4;
+-		process();
+-	}
+-	counter--;
+-	return pitch;
++	timeElapsed = (timeElapsed + processTimerIncrement) & 0x00FFFFFF;
++	// This roughly emulates pitch deviations observed on real units when playing a single partial that uses TVP/LFO.
++	jitterState = jitterState * 1664525u + 1013904223u;
++	counter = NOMINAL_PROCESS_TIMER_PERIOD_SAMPLES + int((jitterState >> 24) & 3);
++	processTimerIncrement = (processTimerTicksPerSampleX16 * counter) >> 4;
++	process();
+ }
+ 
+ void TVP::process() {
+diff -ruN munt-pristine/munt-munt_2_8_2/mt32emu/src/TVP.h /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVP.h
+--- munt-pristine/munt-munt_2_8_2/mt32emu/src/TVP.h	2026-06-06 06:58:54.000000000 -0700
++++ /mnt/c/Users/eggst/Documents/PlatformIO/Projects/PSP-MIDI/vita/munt/munt-munt_2_8_2/mt32emu/src/TVP.h	2026-09-28 19:20:16.124363400 -0700
+@@ -39,6 +39,7 @@
+ 	const int processTimerTicksPerSampleX16;
+ 	int processTimerIncrement;
+ 	int counter;
++	Bit32u jitterState; // PRISM: per-partial timer jitter state
+ 	Bit32u timeElapsed;
+ 
+ 	int phase;
+@@ -61,11 +62,17 @@
+ 	void targetPitchOffsetReached();
+ 	void nextPhase();
+ 	void process();
++	void processTimerTick();   // PRISM: slow path of nextPitch
+ public:
+ 	TVP(const Partial *partial);
+ 	void reset(const Part *part, const TimbreParam::PartialParam *partialParam);
+ 	Bit32u getBasePitch() const;
+-	Bit16u nextPitch();
++	// PRISM: inline, called every sample; the timer work stays out of line
++	Bit16u nextPitch() {
++		if (counter == 0) processTimerTick();
++		counter--;
++		return pitch;
++	}
+ 	void startDecay();
+ }; // class TVP
+ 

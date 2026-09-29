@@ -1,0 +1,47 @@
+PRISM 0.21 - credits
+
+PRISM is written by eggstoastbacon (HobbyChop).
+
+It builds on the work of others. Each licence is reproduced in the
+licenses folder.
+
+Munt (libmt32emu) 2.8.2
+  The MT-32 and CM-32L emulator, by the Munt team: Dean Beeler, Jerome
+  Fisher, Sergey V. Mikayev and the contributors listed in
+  licenses/Munt-AUTHORS.txt. GNU Lesser General Public License 2.1,
+  licenses/LGPL-2.1-Munt.txt. PRISM links it statically and modifies it:
+  the partials render on several threads, MIDI events are applied per
+  block instead of one per single-sample pass, and the per-sample path is
+  trimmed without changing its output. The changes are in
+  licenses/munt-prism-parallel.patch, a diff against the upstream 2.8.2
+  release, and the modified source is in the PRISM repository at
+  https://github.com/HobbyChop/prism or from the author on request.
+  Home: https://github.com/munt/munt
+
+TinySoundFont 0.9
+  The SoundFont player. Copyright (C) 2017-2025 Bernhard Schelling, based
+  on SFZero by Steve Folta. MIT License, licenses/MIT-TinySoundFont.txt.
+  PRISM changes it to keep samples as 16-bit, adds per-channel tone
+  control and a per-part render entry point; the patch is
+  tools/patch_tsf.py in the repository.
+  Home: https://github.com/schellingb/TinySoundFont
+
+GeneralUser GS 2.0.3
+  The built-in General MIDI bank, by S. Christian Collins. Distributed
+  under its own licence, licenses/GeneralUser-GS-LICENSE.txt.
+  Home: https://www.schristiancollins.com/generaluser
+
+IBM Plex Sans and IBM Plex Mono
+  The panel typefaces. Copyright 2017 IBM Corp. SIL Open Font License
+  1.1, licenses/OFL-IBM-Plex.txt.
+
+Freeverb
+  The reverb design follows Freeverb by Jezar at Dreampoint, released
+  into the public domain.
+
+vitasdk and taiHEN
+  The toolchain and the plugin framework the MIDI kernel module runs
+  under. The USB device driver follows the structure of xerpi's vitastick.
+
+MT-32 and CM-32L ROM images are the property of Roland and are not
+included. PRISM reads the ones you place in ux0:data/prism/mt32.
